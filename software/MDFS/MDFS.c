@@ -7,6 +7,9 @@ No write actions are performed.
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
+#include "MDFS.h"
 
 // fopen
 // fclose
@@ -48,41 +51,13 @@ No write actions are performed.
  * @endcode
  */
 
-#define MDFS_MAX_FILENAME (120)
-#define MDFS_MAX_FILECOUNT (512) // = 64 kB block 0 with 128 byte entries
-#define MDFS_ERROR_LEN (80)
-#define MDFS_STATE_CLOSED (0)
-#define MDFS_STATE_OPEN (1)
-
-typedef struct _mdfs_iobuf
-{
-  int index;
-  uint32_t offset;
-  void* base;
-  int32_t size;
-  char filename[MDFS_MAX_FILENAME];
-} mdfs_FILE;
-
-
-typedef struct MDFSFile {
-	int32_t size;
-	uint32_t byte_offset; ///< From start of FS (yes I don't expect > 4 GB)
-	char filename[MDFS_MAX_FILENAME];
-} mdfs_file_t;
-
-typedef struct MDFS {
-	void* target;
-	mdfs_file_t** file_list; ///< List is ordered by byte_offset
-	uint32_t file_count; ///< Number of entries in file_list
-	char error[MDFS_ERROR_LEN]; ///< Buffer for error msg. Always a valid string.
-} mdfs_t;
-
-int mdfs_build_file_list(mdfs_t* mdfs);
-static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
+int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset);
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
+
 #define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t**)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t*))
-#define mdfs_ferror(f) (0);
+#define _mdfs_free_entry(entry) free(entry)
+
 
 /** @brief Returns an initialized mdfs instance
  * 
@@ -140,6 +115,21 @@ int mdfs_build_file_list(mdfs_t* mdfs)
 		}
 	}
 	return count;
+}
+
+/** @brief Close/Deinitialize mdfs
+ * 
+ * @ingroup mdfs
+ */
+void mdfs_deinit(mdfs_t* mdfs)
+{
+  int i = 0;
+  for (i = 0; i < mdfs->file_count; ++i)
+  {
+    _mdfs_free_entry(mdfs->file_list[i]);
+  }
+  free(mdfs->file_list);
+  free(mdfs);
 }
 
 /** @brief Get the filename at index in the file_list
@@ -234,19 +224,23 @@ void* mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
       break;
     }
   }
-  int error = _mdfs_insert(mdfs, _mdfs_alloc_entry(filename, size, target), i);
+  mdfs_file_t* new = _mdfs_alloc_entry(filename, size, target);
+  int error = _mdfs_insert(mdfs, new, i);
   switch (error)
   {
   case -1:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "borked index?");
+    _mdfs_free_entry(new);
     return NULL;
   case -2:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "No room in file list");
+    _mdfs_free_entry(new);
     return NULL;
   case 0:
     return (void*)(mdfs->target + target);
   default:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "unknown error: %i", error);
+    _mdfs_free_entry(new);
     return NULL;
   }
 }
@@ -267,24 +261,54 @@ void* mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
  */
 mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode)
 {
-  if (strlen(mode) > 1 || mode[0] != 'r') 
+  // Only allow all mode starting with r
+  if (mode[0] != 'r') 
   {
     snprintf(mdfs->error, MDFS_ERROR_LEN, "Unsupported mode: %s", mode);
+    errno = EINVAL;
     return NULL;
   }
+  if (strcmp(filename, "stdin") == 0)
+  {
+    mdfs_FILE* fd = malloc(sizeof(mdfs_FILE));
+    fd->index = -1;
+    return fd;
+  }
+
   int index = _mdfs_get_file_index(mdfs, filename);
   if (index < 0)
   {
     snprintf(mdfs->error, MDFS_ERROR_LEN, "File not found");
+    errno = ENOENT;
     return NULL;
   }
   mdfs_FILE* fd = malloc(sizeof(mdfs_FILE));
+  // Set values and copy filename
   fd->base = (void*)((uint32_t)mdfs->target + mdfs->file_list[index]->byte_offset);
   fd->offset = 0;
   fd->size = mdfs->file_list[index]->size;
   memcpy((void*)fd->filename, (void*)mdfs->file_list[index]->filename, MDFS_MAX_FILENAME);
   fd->index = index;
   return fd;
+}
+
+/** @brief Reopen file with different filename or mode
+ * 
+ * @ingroup mdfs
+ */
+mdfs_FILE* mdfs_freopen(mdfs_t* mdfs, const char* filename, const char* mode, mdfs_FILE* f)
+{
+  if (filename == NULL) filename = f->filename;
+  mdfs_FILE* new = mdfs_fopen(mdfs, filename, mode);
+  if (new == NULL) 
+  {
+    mdfs_fclose(f);
+    return NULL;
+  }
+  memcpy((void*)f, (void*)new, sizeof(mdfs_FILE));
+  f->offset = 0;
+  mdfs_fclose(new);
+  return f;
 }
 
 
@@ -336,6 +360,7 @@ size_t mdfs_fread(void* ptr, size_t size, size_t count, mdfs_FILE* f)
     int n = f->size - f->offset;
     if (n < 0) return 0;
     memcpy(ptr, (void*)(f->base + f->offset), n);
+    f->offset += n;
     return n;
   }
 
@@ -354,6 +379,15 @@ static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32
   new_entry->byte_offset = byte_offset;
   return new_entry;
 }
+
+
+
+int mdfs_fgetc(mdfs_FILE* f)
+{
+  if (mdfs_feof(f)) {printf("fgetc eof\n"); return MDFS_EOF;}
+  return (int)(*(uint8_t*)(f->base + f->offset++));
+}
+
 
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
 {
@@ -383,7 +417,7 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
 }
 
 
-static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
+int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
 {
   int i = 0;
   for (i = 0; i < mdfs->file_count; ++i)
@@ -395,186 +429,7 @@ static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
 
 
 // ------------------------------------------------------------------
-void print_file_list(mdfs_t* mdfs)
-{
-	int i = 0;
-	char* buf = malloc(MDFS_MAX_FILENAME);
-	printf("File list:\n");
-	while(1)
-	{
-		if (mdfs_get_filename(mdfs, i, buf) > 0) 
-		{
-			printf("%i: %s (%i bytes) @ 0x%08X\n", i, buf, mdfs_get_filesize(mdfs, i), mdfs_get_file_location(mdfs, i));
-		}
-		else
-		{
-			break;
-		}
-		++i;
-	}
-}
-
-static int _test_fread(mdfs_t* mdfs)
-{
-  // Assume there's a file called 'file1'
-  printf("Testing fread\n");
-  // Open
-  mdfs_FILE* f = mdfs_fopen(mdfs, "file1", "r");
-  printf("fopen 'file1': (0x%p)\n", f);
-  if (f == NULL) 
-  {
-    printf("FAILED, %s\n", mdfs->error);
-    return -1;
-  }
-  // Read and print entire file in small steps
-  char buffer[14];
-  int result = 0;
-  while (!mdfs_feof(f)) 
-  {
-    result = mdfs_fread((void*)buffer, 1, 13, f);
-    buffer[13] = '\0';
-    if (result != 13) 
-    {
-      printf("FAILED (%i)\n", result);
-      return -1;
-    }
-    printf("fread 13 bytes of file1: %s\n", buffer);
-  }
-
-  // Close file
-  result = mdfs_fclose(f);
-  if (result != 0) return -1;
-  printf("Close file: OK\n");
-
-  return 0;
-}
 
 
-static int _test_add_file(mdfs_t* mdfs)
-{
-  // Assume file list is empty.
 
-  printf("Testing add file\n");
-  void* result;
-  // Error for size 0
-  result = mdfs_add_file(mdfs, "add file test 1", 0);
-  printf("add file with size 0: (NULL) %s\n", mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
-  // Error for size negative
-  result = mdfs_add_file(mdfs, "add file test 2", -1);
-  printf("add file with size -1: (NULL) %s\n", mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
-  // Normal add file call
-  result = mdfs_add_file(mdfs, "add file test 3", 1);
-  printf("add file with size 1: (0x%p)\n", result);
-  if (result == NULL) return -1;
-  // Test next file is added after it
-  void* last_file = result;
-  result = mdfs_add_file(mdfs, "add file test 4", 9);
-  printf("add file with size 9: (0x%p)\n", result);
-  if (result != last_file + 1) {
-    printf("failed\n");
-    return -1;
-  }
-  // Test next file is added after is with size > 1
-  last_file = result;
-  result = mdfs_add_file(mdfs, "add file test 4", 3);
-  printf("add file with size 3: (0x%p)\n", result);
-  if (result != last_file + 9) {
-    printf("failed\n");
-    return -1;
-  }
-  // Add files till we're full
-  int i = 0;
-  char namebuf[MDFS_MAX_FILENAME];
-  for (i = 0; i < MDFS_MAX_FILECOUNT + 10; ++i)
-  {
-    snprintf(namebuf, MDFS_MAX_FILENAME, "testfile %i", i);
-    result = mdfs_add_file(mdfs, namebuf, 33);
-    if (i >= mdfs->file_count && ( result != NULL || strlen(mdfs->error) <= 0 ))
-    {
-      printf("Failed at %i, file_count = %i, result 0x%p\n", i, mdfs->file_count, result);
-      return -1;
-    }
-  }
-  if (mdfs->file_count != MDFS_MAX_FILECOUNT)
-  {
-    printf("file_count is not max after trying to add %i files\n", MDFS_MAX_FILECOUNT + 10);
-    return -1;
-  }
-  printf("add files when full: (NULL) %s\n", mdfs->error);
 
-  return 0; // All passed
-}
-
-static int _test_fopen(mdfs_t* mdfs)
-{
-  printf("Testing fopen\n");
-  mdfs_FILE* result;
-  // unsupported mode of multiple chars
-  result = mdfs_fopen(mdfs, "file1", "wb");
-  printf("fopen with mode wb: (0x%p) %s\n", result, mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
-  // unsupported mode of single chars
-  result = mdfs_fopen(mdfs, "file1", "a");
-  printf("fopen with mode a: (0x%p) %s\n", result, mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
-  // non-existing file
-  result = mdfs_fopen(mdfs, "plop", "r");
-  printf("fopen non-existing file: (0x%p) %s\n", result, mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
-  // non existing filename longer than allowed
-  result = mdfs_fopen(mdfs, "this is a really long filename longer than the allowed 120 ish chars which is actually quite lot now that i'm typing it, damn", "r");
-  printf("fopen non-existing long filename: (0x%p) %s\n", result, mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
-  // Open an actual file
-  result = mdfs_fopen(mdfs, "file1", "r");
-  printf("fopen file1: (0x%p)\n", result);
-  if (result == NULL) return -1;
-  printf("  name=%s\n  size=%i\n  offset=%i\n  base=0x%p\n  index=%i\n", 
-    result->filename,
-    result->size,
-    result->offset,
-    result->base,
-    result->index);
-  if (
-    (strcmp("file1", result->filename) != 0) ||
-    (result->size <= 0) ||
-    (result->base < mdfs->target + MDFS_MAX_FILECOUNT * sizeof(mdfs_file_t)) ||
-    (result->index != _mdfs_get_file_index(mdfs, "file1"))
-  ) 
-  {
-    mdfs_fclose(result);
-    return -1;
-  }
-  mdfs_fclose(result);
-
-  return 0;
-}
-
-int main()
-{
-	FILE* f = fopen("test_fs", "r");
-	if (f == NULL) 
-	{
-		printf("File error\n");
-		return 1;
-	}
-	void* test_fs = malloc(65536*2);
-	fread(test_fs, 2, 65536, f);
-	fclose(f);
-	printf("buffer @ %p\n", test_fs);
-	printf("0x%08X\n", ((uint32_t*)test_fs)[0]);
-	
-	mdfs_t* mdfs = mdfs_init_simple(test_fs);
-	print_file_list(mdfs);
-  if (_test_fopen(mdfs) == 0) printf("-- fopen: OK\n");
-  else printf("fopen: FAILED\n");
-  // if (_test_fread(mdfs) == 0) printf("-- fread: OK\n");
-  // else printf("fread: FAILED\n");
-  // if (_test_add_file(mdfs) == 0) printf("-- add file: OK\n");
-  // else printf("add files: FAILED, %s\n", mdfs->error);
-
-	// don't care, leak everything
-	return 0;
-}
