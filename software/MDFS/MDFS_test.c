@@ -67,23 +67,23 @@ static int _test_add_file(mdfs_t* mdfs)
   // Assume file list is empty.
 
   printf("Testing add file\n");
-  void* result;
+  uint32_t result;
   // Error for size 0
   result = mdfs_add_file(mdfs, "add file test 1", 0);
-  printf("add file with size 0: (NULL) %s\n", mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
+  printf("add file with size 0: (%i) %s\n", result, mdfs->error);
+  if (result >= MDFS_BLOCKSIZE || strlen(mdfs->error) <= 0) return -1;
   // Error for size negative
   result = mdfs_add_file(mdfs, "add file test 2", -1);
-  printf("add file with size -1: (NULL) %s\n", mdfs->error);
-  if (result != NULL || strlen(mdfs->error) <= 0) return -1;
+  printf("add file with size -1: (%i) %s\n", result, mdfs->error);
+  if (result >= MDFS_BLOCKSIZE || strlen(mdfs->error) <= 0) return -1;
   // Normal add file call
   result = mdfs_add_file(mdfs, "add file test 3", 1);
-  printf("add file with size 1: (0x%p)\n", result);
-  if (result == NULL) return -1;
+  printf("add file with size 1: (0x%08X)\n", result);
+  if (result < MDFS_BLOCKSIZE) return -1;
   // Test next file is added after it
-  void* last_file = result;
+  uint32_t last_file = result;
   result = mdfs_add_file(mdfs, "add file test 4", 9);
-  printf("add file with size 9: (0x%p)\n", result);
+  printf("add file with size 9: (0x%08X)\n", result);
   if (result != last_file + 1) {
     printf("failed\n");
     return -1;
@@ -91,7 +91,7 @@ static int _test_add_file(mdfs_t* mdfs)
   // Test next file is added after is with size > 1
   last_file = result;
   result = mdfs_add_file(mdfs, "add file test 4", 3);
-  printf("add file with size 3: (0x%p)\n", result);
+  printf("add file with size 3: (0x%08X)\n", result);
   if (result != last_file + 9) {
     printf("failed\n");
     return -1;
@@ -103,9 +103,10 @@ static int _test_add_file(mdfs_t* mdfs)
   {
     snprintf(namebuf, MDFS_MAX_FILENAME, "testfile %i", i);
     result = mdfs_add_file(mdfs, namebuf, 33);
-    if (i >= mdfs->file_count && ( result != NULL || strlen(mdfs->error) <= 0 ))
+    // If we're full (i >= filecount) but there's no error, that's a fail
+    if (i >= mdfs->file_count && ( result >= MDFS_BLOCKSIZE || strlen(mdfs->error) <= 0 ))
     {
-      printf("Failed at %i, file_count = %i, result 0x%p\n", i, mdfs->file_count, result);
+      printf("Failed at %i, file_count = %i, result 0x%08X\n", i, mdfs->file_count, result);
       return -1;
     }
   }
@@ -114,7 +115,7 @@ static int _test_add_file(mdfs_t* mdfs)
     printf("file_count is not max after trying to add %i files\n", MDFS_MAX_FILECOUNT + 10);
     return -1;
   }
-  printf("add files when full: (NULL) %s\n", mdfs->error);
+  printf("add files when full: (0x%08X) %s\n", result, mdfs->error);
 
   return 0; // All passed
 }
@@ -164,6 +165,8 @@ static int _test_fopen(mdfs_t* mdfs)
 
   return 0;
 }
+
+
 
 
 void _test_fgetc(mdfs_t* mdfs)

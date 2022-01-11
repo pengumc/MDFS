@@ -102,7 +102,8 @@ int mdfs_build_file_list(mdfs_t* mdfs)
 	for (i = 0; i < MDFS_MAX_FILECOUNT; ++i)
 	{
     // Read size of file from block 0
-		int32_t apparant_size =  *(int32_t*)( &((mdfs_file_t*)mdfs->target)[i] );
+    void* target = &((mdfs_file_t*)mdfs->target)[i];
+		int32_t apparant_size =  *(int32_t*)( target );
 		// printf("%i - size %i\n", i, apparant_size);
 		if (apparant_size > 0)
 		{
@@ -186,20 +187,21 @@ uint32_t mdfs_get_file_location(mdfs_t* mdfs, int index)
  * @param mdfs Pointer to initialized mdfs.
  * @param filename Name of the new file (will be truncated to MDFS_MAX_FILENAME-1)
  * @param size Size of the file in bytes.
- * @returns A pointer to the target location for this file.
+ * @returns The offset from the base of mdfs which is always >= MDFS_BLOCKSIZE in case
+ * of success
  *
  * @ingroup mdfs
  */
-void* mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
+uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
 {
   if (size <= 0) 
   {
     snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid size");
-  	return NULL;
+  	return 0;
   }
    
   int i = 0; // Insertion index in file_list.
-  uint32_t target = 0;  // Target byte offset for new file
+  uint32_t target = MDFS_BLOCKSIZE;  // Target byte offset for new file
   mdfs_file_t* next_file = NULL;
   while(1)
   {
@@ -231,17 +233,17 @@ void* mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
   case -1:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "borked index?");
     _mdfs_free_entry(new);
-    return NULL;
+    return 0;
   case -2:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "No room in file list");
     _mdfs_free_entry(new);
-    return NULL;
+    return 0;
   case 0:
-    return (void*)(mdfs->target + target);
+    return target;
   default:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "unknown error: %i", error);
     _mdfs_free_entry(new);
-    return NULL;
+    return 0;
   }
 }
 
