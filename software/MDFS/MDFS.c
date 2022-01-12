@@ -8,26 +8,10 @@ No write actions are performed.
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <ctype.h>
 
 #include "MDFS.h"
 
-// fopen
-// fclose
-// fread
-// feof
-// ferror
-// freopen
-
-// rename
-// tmpfile
-// tmpnam
-// setvbuf
-// fprintf
-
-
-// fgets onyl for stdin 
-// fputs only for stdout
-// fflush?
 
 
 /**
@@ -50,8 +34,8 @@ No write actions are performed.
  *
  * @endcode
  */
-
-int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
+static int _mdfs_build_file_list(mdfs_t* mdfs);
+static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset);
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
 
@@ -75,7 +59,7 @@ mdfs_t* mdfs_init_simple(const void* target) {
 	mdfs->file_list = NULL; // = (mdfs_file_t**)malloc(0);
 	mdfs->file_count = 0;
 	memset((void*)mdfs->error, 0, MDFS_ERROR_LEN);
-	mdfs_build_file_list(mdfs);
+	_mdfs_build_file_list(mdfs);
 	return mdfs;
 }
 
@@ -86,9 +70,11 @@ mdfs_t* mdfs_init_simple(const void* target) {
  * @param mdfs Initialized instance of mdfs_t, see @ref MDFS_open_simple.
  * @returns Number of files in the list.
  *
+ * @todo discard entry if size or offset don't make sense, or if filename contains non-ascii or doesn't end in \0
+ * 
  * @ingroup MDFS
  */
-int mdfs_build_file_list(mdfs_t* mdfs)
+static int _mdfs_build_file_list(mdfs_t* mdfs)
 {
 	// for 
 	// if entry at i size != 0
@@ -97,21 +83,38 @@ int mdfs_build_file_list(mdfs_t* mdfs)
 	//   
     //   allocate new file_list entry and memcpy from fs
 	printf("MDFS_build_file_list\n");
-	int i = 0;
+	int i, j;
 	int count = 0;
 	for (i = 0; i < MDFS_MAX_FILECOUNT; ++i)
 	{
-    // Read size of file from block 0
-    void* target = &((mdfs_file_t*)mdfs->target)[i];
-		int32_t apparant_size =  *(int32_t*)( target );
-		// printf("%i - size %i\n", i, apparant_size);
-		if (apparant_size > 0)
+    // Grab the entry from the array in block 0 (which starts at mdfs->target)
+    mdfs_file_t* target = &((mdfs_file_t*)mdfs->target)[i];
+    // printf("[%i] s=%i, o=0x%08X\n", i, target->size, target->byte_offset);
+    // Check sanity of filesize and offset
+		if (
+      (target->size > 0) &&
+      (target->size <= MDFS_MAX_FILESIZE) &&
+      (target->byte_offset >= MDFS_BLOCKSIZE)
+    )
 		{
+      // Check filename for non-ascii chars before \0
+      int should_skip = 0;
+      for (j = 0; j < MDFS_MAX_FILENAME; ++j)
+      {
+        if (target->filename[j] == 0) break;
+        if (!isprint(target->filename[j])) {
+          should_skip = 1;
+          break;
+        }
+      }
+      // If j reached end, the string wasn't 0 terminated.
+      if (j >= MDFS_MAX_FILENAME || should_skip) continue;
+      // Everything makes sense, add it to the list
 			if (i >= mdfs->file_count) _MDFS_INCREMENT_FILE_COUNT(mdfs);
 			mdfs->file_list[count] = (mdfs_file_t*)malloc(sizeof(mdfs_file_t));
 			memcpy((void*)mdfs->file_list[count], &((mdfs_file_t*)mdfs->target)[i], sizeof(mdfs_file_t));
-			// Force last char in name \0
-			mdfs->file_list[count]->filename[MDFS_MAX_FILENAME-1] = '\0';
+			// // Force last char in name \0
+			// mdfs->file_list[count]->filename[MDFS_MAX_FILENAME-1] = '\0';
 			++count;
 		}
 	}
@@ -141,7 +144,7 @@ void mdfs_deinit(mdfs_t* mdfs)
  * @param mdfs Initialized instance of mdfs_t, see @ref MDFS_open_simple.
  * @param index Index in the file_list
  * @param buffer Target location for the filename. Must be at least @ref MDFS_MAX_FILENAME bytes.
- * @returns The number of characters copied to buffer. -1 In case there's no file at index,
+ * @returns The number of characters in the name (strlen). -1 In case there's no file at index,
  * mdfs->error is written in that case.
  *
  * @ingroup MDFS
@@ -168,7 +171,7 @@ int32_t mdfs_get_filesize(mdfs_t* mdfs, int index)
 	return mdfs->file_list[index]->size;
 }
 
-uint32_t mdfs_get_file_location(mdfs_t* mdfs, int index)
+uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
 {
 	if (index < 0 || index >= mdfs->file_count)
 	{
@@ -419,7 +422,7 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
 }
 
 
-int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
+static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
 {
   int i = 0;
   for (i = 0; i < mdfs->file_count; ++i)

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 #include "MDFS.h"
 
@@ -15,7 +16,7 @@ void print_file_list(mdfs_t* mdfs)
 	{
 		if (mdfs_get_filename(mdfs, i, buf) > 0) 
 		{
-			printf("%i: %s (%i bytes) @ 0x%08X\n", i, buf, mdfs_get_filesize(mdfs, i), mdfs_get_file_location(mdfs, i));
+			printf("%i: %s (%i bytes) @ 0x%08X\n", i, buf, mdfs_get_filesize(mdfs, i), mdfs_get_file_offset(mdfs, i));
 		}
 		else
 		{
@@ -186,32 +187,152 @@ void _test_fgetc(mdfs_t* mdfs)
   mdfs_fclose(f);
 }
 
+/* Return a filesystem of 3 blocks for testing.
+ * Contains 2 files, "file_A" and "file_B" on offsets A and B 
+ * contents of the files are string A and B (null char not included)
+ * Unused space is set to 0xFF
+ * use free() to deallocate when done
+ * You will get NULL if not everything fits into 3 blocks
+ */
+static const void* fs_factory(int init, uint32_t offset_A, uint32_t offset_B, const char* string_A, const char* string_B)
+{
+  int len_A = strlen(string_A);
+  int len_B = strlen(string_B);
+  if ((offset_A + len_A > 3*MDFS_BLOCKSIZE-1) || (offset_B + len_B > 3*MDFS_BLOCKSIZE-1))
+  {
+    printf("fs_factory: Invalid params");
+    return NULL;
+  }
+  void* fs = malloc(3*MDFS_BLOCKSIZE);
+  memset(fs, init, 3*MDFS_BLOCKSIZE);
+  void* p = fs;
+  // Setup file list
+  ((uint32_t*)p)[0] = len_A; // Size
+  ((uint32_t*)p)[1] = offset_A; // Offset
+  sprintf(p+8, "file_A");
+  p += 128;
+  ((uint32_t*)p)[0] = len_B; // Size
+  ((uint32_t*)p)[1] = offset_B; // Offset
+  sprintf(p+8, "file_B");
+  p = fs + offset_A;
+  memcpy(p, (void*)string_A, len_A); // strlen does not include \0
+  p = fs + offset_B;
+  memcpy(p, (void*)string_B, len_B);
+  return fs;
+}
+
+static void _print_file_list(mdfs_t* mdfs)
+{
+  int i, len, j;
+  char name[MDFS_MAX_FILENAME];
+  for (i = 0; i < mdfs_get_filecount(mdfs); ++i)
+  {
+    printf("\t[%i] size: %i, offset: %i, name:\"",
+      i, 
+      mdfs_get_filesize(mdfs, i),
+      mdfs_get_file_offset(mdfs, i));
+    len = mdfs_get_filename(mdfs, i, name);
+    for (j=0; j < len; ++j) {
+      if (isprint(name[j])) printf("%c", name[j]);
+      else printf("\\x%02X", name[j]);
+    }
+    printf("\"\n");
+  }
+}
+
+/* mdfs_init_simple filecount should be 2 */
+static int T_mdfs_init_simple_init_0xFF_expect_filecount_2()
+{
+  int test_result = 0;
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "this is file_A", "this is file_B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  if (mdfs_get_filecount(mdfs) != 2)
+  {
+    printf("\t[ERROR] T_mdfs_init_simple_init_0xFF_expect_filecount_2: filecount=%i\n", mdfs_get_filecount(mdfs));
+    printf("\tFile list:\n");
+    _print_file_list(mdfs);
+    test_result = -1;
+  }
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return test_result;
+}
+
+/* mdfs_init_simple filecount should be 2 */
+static int T_mdfs_init_simple_init_0x00_expect_filecount_2()
+{
+  int test_result = 0;
+  const void* fs = fs_factory(0x00, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "this is file_A", "this is file_B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  if (mdfs_get_filecount(mdfs) != 2)
+  {
+    printf("\t[ERROR] T_mdfs_init_simple_init_0x00_expect_filecount_2: filecount=%i\n", mdfs_get_filecount(mdfs));
+    printf("\tFile list:\n");
+    _print_file_list(mdfs);
+    test_result = -1;
+  }
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return test_result;
+}
+
+/* mdfs_init_simple filecount should be 2 */
+// -- This currently fails due to 0x01 being seen as valid filesize
+static int T_mdfs_init_simple_init_0x01_expect_filecount_2()
+{
+  int test_result = 0;
+  const void* fs = fs_factory(0x01, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "this is file_A", "this is file_B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  if (mdfs_get_filecount(mdfs) != 2)
+  {
+    printf("\t[ERROR] T_mdfs_init_simple_init_0x01_expect_filecount_2: filecount=%i\n", mdfs_get_filecount(mdfs));
+    printf("\tFile list:\n");
+    _print_file_list(mdfs);
+    test_result = -1;
+  }
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return test_result;
+}
+
+
 int main(int argc, char** argv)
 {
-	FILE* f = fopen("test_fs", "r");
-	if (f == NULL) 
-	{
-		printf("File error\n");
-		return 1;
-	}
-	void* test_fs = malloc(65536*2);
-	fread(test_fs, 2, 65536, f);
-	fclose(f);
-	printf("buffer @ %p\n", test_fs);
-	printf("0x%08X\n", ((uint32_t*)test_fs)[0]);
+	// FILE* f = fopen("test_fs", "r");
+	// if (f == NULL) 
+	// {
+	// 	printf("File error\n");
+	// 	return 1;
+	// }
+	// void* test_fs = malloc(65536*2);
+	// fread(test_fs, 2, 65536, f);
+	// fclose(f);
+	// printf("buffer @ %p\n", test_fs);
+	// printf("0x%08X\n", ((uint32_t*)test_fs)[0]);
 	
-	mdfs_t* mdfs = mdfs_init_simple(test_fs);
-	print_file_list(mdfs);
-  if (_test_fopen(mdfs) == 0) printf("-- fopen: OK\n");
-  else printf("fopen: FAILED\n");
-  if (_test_fread(mdfs) == 0) printf("-- fread: OK\n");
-  else printf("fread: FAILED\n");
-  if (_test_add_file(mdfs) == 0) printf("-- add file: OK\n");
-  else printf("add files: FAILED, %s\n", mdfs->error);
+	// mdfs_t* mdfs = mdfs_init_simple(test_fs);
+	// print_file_list(mdfs);
+  // if (_test_fopen(mdfs) == 0) printf("-- fopen: OK\n");
+  // else printf("fopen: FAILED\n");
+  // if (_test_fread(mdfs) == 0) printf("-- fread: OK\n");
+  // else printf("fread: FAILED\n");
+  // if (_test_add_file(mdfs) == 0) printf("-- add file: OK\n");
+  // else printf("add files: FAILED, %s\n", mdfs->error);
 
-  // _test_fgetc(mdfs);
+  // // _test_fgetc(mdfs);
 
-  mdfs_deinit(mdfs);
-  free(test_fs);
+  // mdfs_deinit(mdfs);
+  // free(test_fs);
+  int result;
+
+  result = T_mdfs_init_simple_init_0xFF_expect_filecount_2();
+  printf("== T_mdfs_init_simple_init_0xFF_expect_filecount_2: %i ==\n", result);
+
+  result = T_mdfs_init_simple_init_0x00_expect_filecount_2();
+  printf("== T_mdfs_init_simple_init_0x00_expect_filecount_2: %i ==\n", result);
+
+  result = T_mdfs_init_simple_init_0x01_expect_filecount_2();
+  printf("== T_mdfs_init_simple_init_0x01_expect_filecount_2: %i ==\n", result);
+  
 	return 0;
 }
