@@ -295,6 +295,64 @@ static int T_mdfs_init_simple_init_0x01_expect_filecount_2()
   return test_result;
 }
 
+/* test fopen to return NULL for non-existing files and give error*/
+static int T_mdfs_fopen_non_existing_expect_NULL()
+{
+  int test_result = 0;
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "This is file A", "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f;
+
+  f = mdfs_fopen(mdfs, "", "r");
+  if (f != NULL) 
+  {
+    printf("\tfopen(\"\") gives non-NULL: %p\n", f);
+    mdfs_fclose(f);
+    test_result = -1;
+  }
+
+  f = mdfs_fopen(mdfs, "plop", "r");
+  if (f != NULL) 
+  {
+    printf("\tfopen(\"plop\") gives non-NULL: %p\n", f);
+    mdfs_fclose(f);
+    test_result = -1;
+  }
+
+
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return test_result;
+}
+
+/* Test fopen to return a handle when opening an exiting file */
+static int T_mdfs_fopen_existing_expect_ptr()
+{
+  int test_result = 0;
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "This is file A", "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f;
+
+  f = mdfs_fopen(mdfs, "file_A", "r");
+  if (f == NULL) 
+  {
+    printf("\tfopen(\"file_A\") gives NULL: %p\n", f);
+    test_result = -1;
+  }
+  mdfs_fclose(f);
+
+  f = mdfs_fopen(mdfs, "file_B", "r");
+  if (f == NULL) 
+  {
+    printf("\tfopen(\"file_B\") gives NULL: %p\n", f);
+    test_result = -1;
+  }
+  mdfs_fclose(f);
+
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return test_result;
+}
 
 int main(int argc, char** argv)
 {
@@ -333,6 +391,12 @@ int main(int argc, char** argv)
 
   result = T_mdfs_init_simple_init_0x01_expect_filecount_2();
   printf("== T_mdfs_init_simple_init_0x01_expect_filecount_2: %i ==\n", result);
-  
+
+  result = T_mdfs_fopen_non_existing_expect_NULL();
+  printf("== T_mdfs_fopen_non_existing_expect_NULL: %i ==\n", result);
+
+  result = T_mdfs_fopen_existing_expect_ptr();
+  printf("== T_mdfs_fopen_existing_expect_ptr: %i ==\n", result);
+
 	return 0;
 }

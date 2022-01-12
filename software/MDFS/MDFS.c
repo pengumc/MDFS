@@ -108,7 +108,7 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
         }
       }
       // If j reached end, the string wasn't 0 terminated.
-      if (j >= MDFS_MAX_FILENAME || should_skip) continue;
+      if (j >= MDFS_MAX_FILENAME || j == 0 || should_skip) continue;
       // Everything makes sense, add it to the list
 			if (i >= mdfs->file_count) _MDFS_INCREMENT_FILE_COUNT(mdfs);
 			mdfs->file_list[count] = (mdfs_file_t*)malloc(sizeof(mdfs_file_t));
@@ -187,6 +187,8 @@ uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
  * No checks are done on uniqueness of the filename. If the file already exists
  * it is simply created a second time.
  *
+ * @remarks This function can recurse up to 511, make sure there is stack space.
+ * 
  * @param mdfs Pointer to initialized mdfs.
  * @param filename Name of the new file (will be truncated to MDFS_MAX_FILENAME-1)
  * @param size Size of the file in bytes.
@@ -260,7 +262,7 @@ uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
  * @param filename Filename to open (case sensitive)
  * @param mode Only "r" supported
  * 
- * @remarks Call @ref mdfs_clse when you're done
+ * @remarks Call @ref mdfs_close when you're done
  * 
  * @ingroup mdfs
  */
