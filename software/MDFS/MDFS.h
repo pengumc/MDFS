@@ -2,8 +2,9 @@
 #define _MDFS_H_
 
 #include <stdint.h>
-
+/** @brief Maximum number of chars in a name, \0 included */
 #define MDFS_MAX_FILENAME (120)
+
 #define MDFS_BLOCKSIZE (65536)
 #define MDFS_MAX_FILECOUNT (512) // = 64 kB block 0 with 128 byte entries
 #define MDFS_MAX_FILESIZE (1073741824) // = 1 GB
@@ -42,6 +43,7 @@ int mdfs_get_filename(mdfs_t* mdfs, int index, char* buffer);
 int32_t mdfs_get_filesize(mdfs_t* mdfs, int index);
 uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index);
 uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size);
+int mdfs_remove_file(mdfs_t* mdfs, const char* filename);
 
 // IO functions
 mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode);
@@ -54,6 +56,11 @@ int mdfs_fgetc(mdfs_FILE* f);
 #define mdfs_getc(f) mdfs_fgetc(f)
 #define mdfs_passthrough_stdin(mdfs) mdfs_fopen((mdfs), "stdin", "r")
 #define mdfs_get_filelist_size(mdfs) ((mdfs)->file_count * sizeof(mdfs_file_t))
-#define mdfs_get_filecount(mdfs) ((mdfs)->file_count)
+
+inline uint32_t mdfs_get_filecount(mdfs_t* mdfs) __attribute__((always_inline));
+inline uint32_t mdfs_get_filecount(mdfs_t* mdfs) { return mdfs->file_count; } 
+
+inline const char* mdfs_get_error(mdfs_t* mdfs) __attribute__((always_inline));
+inline const char* mdfs_get_error(mdfs_t* mdfs) { return mdfs->error; }
 
 #endif // _MDFS_H_

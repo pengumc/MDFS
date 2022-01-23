@@ -40,6 +40,7 @@ static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
 
 #define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t**)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t*))
+#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t**)realloc((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t*))
 #define _mdfs_free_entry(entry) free(entry)
 
 
@@ -52,15 +53,28 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
  * @ingroup mdfs
  */
 mdfs_t* mdfs_init_simple(const void* target) {
-	printf("MDFS_init\n");
 	mdfs_t* mdfs = (mdfs_t*)malloc(sizeof(mdfs_t));
 	mdfs->target = target;
-	// array of 8 mdfs_file_t*. 0 initilized:
-	mdfs->file_list = NULL; // = (mdfs_file_t**)malloc(0);
+	mdfs->file_list = NULL;
 	mdfs->file_count = 0;
 	memset((void*)mdfs->error, 0, MDFS_ERROR_LEN);
 	_mdfs_build_file_list(mdfs);
 	return mdfs;
+}
+
+/* Returns 0 whe name is printable, not length 0 or > max */
+static int _check_name(const char* name)
+{
+  int i;
+  for (i = 0; i < MDFS_MAX_FILENAME; ++i)
+  {
+    if (name[i] == 0) break;
+    if (!isprint(name[i])) {
+      return 1;
+    }
+  }
+  if (i >= MDFS_MAX_FILENAME || i == 0) return 1;
+  else return 0;
 }
 
 /** @brief Build the list of files from block 0
@@ -82,8 +96,7 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
 	//     resize file_list
 	//   
     //   allocate new file_list entry and memcpy from fs
-	printf("MDFS_build_file_list\n");
-	int i, j;
+	int i;
 	int count = 0;
 	for (i = 0; i < MDFS_MAX_FILECOUNT; ++i)
 	{
@@ -97,18 +110,8 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
       (target->byte_offset >= MDFS_BLOCKSIZE)
     )
 		{
-      // Check filename for non-ascii chars before \0
-      int should_skip = 0;
-      for (j = 0; j < MDFS_MAX_FILENAME; ++j)
-      {
-        if (target->filename[j] == 0) break;
-        if (!isprint(target->filename[j])) {
-          should_skip = 1;
-          break;
-        }
-      }
-      // If j reached end, the string wasn't 0 terminated.
-      if (j >= MDFS_MAX_FILENAME || j == 0 || should_skip) continue;
+      // Check filename for non-ascii chars before \0 or weird length
+      if (_check_name(target->filename)) continue;
       // Everything makes sense, add it to the list
 			if (i >= mdfs->file_count) _MDFS_INCREMENT_FILE_COUNT(mdfs);
 			mdfs->file_list[count] = (mdfs_file_t*)malloc(sizeof(mdfs_file_t));
@@ -123,6 +126,7 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
 
 /** @brief Close/Deinitialize mdfs
  * 
+ * @todo just free filelist?
  * @ingroup mdfs
  */
 void mdfs_deinit(mdfs_t* mdfs)
@@ -186,6 +190,8 @@ uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
  * @copybrief mdfs_add_file
  * No checks are done on uniqueness of the filename. If the file already exists
  * it is simply created a second time.
+ * 
+ * Error text is written in case of failure.
  *
  * @remarks This function can recurse up to 511, make sure there is stack space.
  * 
@@ -205,6 +211,12 @@ uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
   	return 0;
   }
    
+  if (_check_name(filename)) 
+  {
+    snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid name");
+    return 0;
+  }
+
   int i = 0; // Insertion index in file_list.
   uint32_t target = MDFS_BLOCKSIZE;  // Target byte offset for new file
   mdfs_file_t* next_file = NULL;
@@ -250,6 +262,40 @@ uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
     _mdfs_free_entry(new);
     return 0;
   }
+}
+
+
+/** @brief Remove a file from the filelist
+ * 
+ * @copybrief mdfs_remove_file
+ * Removes all occurences of filename from the list.
+ * 
+ * @returns The number of files removed
+ * 
+ * @ingroup mdfs
+ */
+int mdfs_remove_file(mdfs_t* mdfs, const char* filename)
+{
+  if (_check_name(filename)) return 0;
+  // All indices must be populated
+  // so after removal we should shift entries around
+  int i, j;
+  int count = 0;
+  for (i = 0; i < mdfs->file_count; ++i)
+  {
+    if (strcmp(filename, mdfs->file_list[i]->filename)) continue; // no match
+    // move all remaining entries 
+    for (j = i+1; j < mdfs->file_count; ++j)
+    {
+      memcpy(mdfs->file_list[j-1], mdfs->file_list[j], sizeof(mdfs_file_t));
+    }
+    // Now decrement filelist
+    _MDFS_DECREMENT_FILE_COUNT(mdfs);
+    // We removed entry i, so decrement and continue
+    --i;
+    ++count;
+  }
+  return count;
 }
 
 
@@ -372,6 +418,7 @@ size_t mdfs_fread(void* ptr, size_t size, size_t count, mdfs_FILE* f)
   }
 
 }
+
 
 int mdfs_feof(mdfs_FILE* f)
 {
