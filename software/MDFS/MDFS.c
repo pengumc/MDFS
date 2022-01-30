@@ -402,7 +402,7 @@ int mdfs_fclose(mdfs_FILE* f)
 /** @brief Read block of data from file
  * 
  * @copybrief mdfs_fread
- * Works like libc fread
+ * Works like libc fread, size is forced to 1.
  * 
  * @param ptr Pointer to block of memory with at least (size*count) bytes.
  * @param size Size in bytes of each element to be read. LIMITED TO 1
@@ -457,7 +457,7 @@ static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32
 
 int mdfs_fgetc(mdfs_FILE* f)
 {
-  if (mdfs_feof(f)) {printf("fgetc eof\n"); return MDFS_EOF;}
+  if (mdfs_feof(f)) return MDFS_EOF;
   return (int)(*(uint8_t*)(f->base + f->offset++));
 }
 

@@ -593,6 +593,272 @@ int T_mdfs_remove_file()
 }
 
 // --------------------------------------------------------------------
+// mdfs_fgetc
+// --------------------------------------------------------------------
+int T_mdfs_fgetc_read_till_eof()
+{
+  printf("T_mdfs_fgetc_read_till_eof: ");
+  int result = 0;
+  const char* content = "This is file A";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
+
+  char buf[30];
+  size_t L = strlen(content);
+  int i = 0;
+  while ((buf[i++] = mdfs_fgetc(f)) != EOF)
+  {
+    if (i > L) 
+    {
+      result = -1;
+      printf("FAILED (read more than %i chars\n", L);
+      buf[i] = 0;
+      printf("\t '%s'", buf);
+    }
+  }
+  buf[i-1] = 0; // Char at i-1 is EOF
+  if (result == 0)
+  {
+    if (strcmp(content, buf) == 0) printf("OK\n");
+    else 
+    {
+      printf("FAILED (content mismatch, '%s')\n", buf);
+      result = -1;
+    }
+  }
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_fgetc_read_past_eof_expect_eof()
+{
+  printf("T_mdfs_fgetc_read_past_eof_expect_eof: ");
+  int result = 0;
+  const char* content = "This is file A";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
+  // read till eof
+  int i = 0;
+  char c;
+  while ((c = mdfs_fgetc(f)) != EOF) {
+    if (++i > 20) {
+      result = -1;
+      printf("FAILED: read more than 20 chars before EOF\n");
+    }
+  }
+  if (result == 0)
+  {
+    c = mdfs_fgetc(f);
+    if (mdfs_feof(f) && c == EOF) printf("OK\n");
+    else 
+    {
+      result = -1;
+      printf("FAILED (feof = %i, fgetc = %i\n", mdfs_feof(f), c);
+    }
+  }
+  
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_fgetc()
+{
+  return 
+    T_mdfs_fgetc_read_till_eof() |
+    T_mdfs_fgetc_read_past_eof_expect_eof();
+}
+
+// --------------------------------------------------------------------
+// mdfs_fread
+// --------------------------------------------------------------------
+int T_mdfs_fread_exact_length_expect_success()
+{
+  printf("T_mdfs_fread_exact_length_expect_success: ");
+  int result = 0;
+  const char* content = "This is file A";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
+
+  char buf[30];
+  size_t L = strlen(content);
+  size_t count = mdfs_fread(buf, 1, L, f);
+  buf[count] = 0;
+  if (count != L)
+  {
+    printf("FAILED (return value = %i)\n", count);
+    result = -1;
+  }
+  else if (strcmp(content, buf) != 0)
+  {
+    printf("FAILED (content mismatch, '%s')\n", buf);
+    result = -1;
+  }
+  else if (!mdfs_feof(f))
+  {
+    printf("FAILED (not at eof after reading '%s')\n", buf);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_fread_oversized_buffer_expect_success()
+{
+  printf("T_mdfs_fread_oversized_buffer_expect_success: ");
+  int result = 0;
+  const char* content = "This is file B";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "blaat", content);
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_B", "r");
+
+  char buf[30];
+  size_t L = strlen(content);
+  size_t count = mdfs_fread(buf, 1, 29, f);
+  buf[count] = 0;
+  if (count != L)
+  {
+    printf("FAILED (return value = %i)\n", count);
+    result = -1;
+  }
+  else if (strcmp(content, buf) != 0)
+  {
+    printf("FAILED (content mismatch, '%s')\n", buf);
+    result = -1;
+  }
+  else if (!mdfs_feof(f))
+  {
+    printf("FAILED (not at eof after reading '%s')\n", buf);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_fread_uneven_steps_expect_success()
+{
+  printf("T_mdfs_fread_uneven_steps_expect_success: ");
+  int result = 0;
+  const char* content = "This is file B with some more text";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "blaat", content);
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_B", "r");
+
+  char buf[60];
+  size_t L = strlen(content); 
+  size_t count;
+  size_t len = 0;
+  char* loc = buf;
+  while (!mdfs_feof(f))
+  {
+    count = mdfs_fread(loc, 1, 3, f);
+    loc += count;
+    len += count;
+    if (count != 3 && !mdfs_feof(f)) 
+    {
+      result = -1;
+      printf("FAILD (read %i/3 chars and not at eof\n", count);
+    }
+  }
+  buf[len] = 0;
+  if (L != len)
+  {
+    printf("FAILED (read %i / %i chars)\n", len, L);
+    result = -1;
+  }
+  else if (strcmp(content, buf) != 0)
+  {
+    printf("FAILED (content mismatch, '%s')\n", buf);
+    result = -1;
+  }
+  else if (!mdfs_feof(f))
+  {
+    printf("FAILED (not at eof after reading '%s')\n", buf);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_fread_at_eof_expect_0()
+{
+  printf("T_mdfs_fread_at_eof_expect_0: ");
+  int result = 0;
+  const char* content = "This is file B with some more text";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "blaat", content);
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_B", "r");
+  // read till end
+  char buf[100];
+  size_t count = mdfs_fread(buf, 1, strlen(content)+10, f);
+  buf[count] = 0;
+  // We're at eof now, buf has content
+  count = mdfs_fread(buf, 1, 10, f);
+  if (count != 0)
+  {
+    result = -1;
+    printf("FAILED (fread at eof returned %i)\n", count);
+  }
+  else if (strcmp(content, buf) != 0)
+  {
+    result = -1;
+    printf("FAILED (fread at eof changed buffer: '%s')\n", buf);
+  }
+  else if (!mdfs_feof(f))
+  {
+    result = -1;
+    printf("FAILED (no longer at eof after fread)\n");
+  }
+  else
+  {
+    printf("'%s' OK\n", buf);
+  }
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_fread()
+{
+  return 
+    T_mdfs_fread_exact_length_expect_success() |
+    T_mdfs_fread_oversized_buffer_expect_success() |
+    T_mdfs_fread_uneven_steps_expect_success() |
+    T_mdfs_fread_at_eof_expect_0();
+}
+
+// --------------------------------------------------------------------
 int main(int argc, char** argv)
 {
   int result = 0;
@@ -600,6 +866,8 @@ int main(int argc, char** argv)
   result |= T_mdfs_fopen();
   result |= T_mdfs_add_file();
   result |= T_mdfs_remove_file();
+  result |= T_mdfs_fgetc();
+  result |= T_mdfs_fread();
   printf("\n == %s ==\n", result ? "FAILED" : "PASSED");
   return result;
 }
