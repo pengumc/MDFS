@@ -588,13 +588,15 @@ int T_mdfs_remove_file()
     T_mdfs_remove_file_from_emtpy_list_expect_0() |
     T_mdfs_remove_file_from_full_list_expect_1() |
     T_mdfs_remove_file_nonexisting_expect_0() |
-    T_mdfs_remove_file_unique_expect_1();
+    T_mdfs_remove_file_unique_expect_1() |
+    0;
 }
 
 // --------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-  int result = T_mdfs_init_simple();
+  int result = 0;
+  result |= T_mdfs_init_simple();
   result |= T_mdfs_fopen();
   result |= T_mdfs_add_file();
   result |= T_mdfs_remove_file();

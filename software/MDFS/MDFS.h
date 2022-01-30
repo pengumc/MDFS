@@ -31,7 +31,7 @@ typedef struct MDFSFile {
 
 typedef struct MDFS {
 	const void* target;
-	mdfs_file_t** file_list; ///< List is ordered by byte_offset
+	mdfs_file_t* file_list; ///< List is ordered by byte_offset
 	uint32_t file_count; ///< Number of entries in file_list
 	char error[MDFS_ERROR_LEN]; ///< Buffer for error msg. Always a valid string.
 } mdfs_t;
@@ -55,12 +55,24 @@ int mdfs_fgetc(mdfs_FILE* f);
 #define mdfs_ferror(f) (0)
 #define mdfs_getc(f) mdfs_fgetc(f)
 #define mdfs_passthrough_stdin(mdfs) mdfs_fopen((mdfs), "stdin", "r")
-#define mdfs_get_filelist_size(mdfs) ((mdfs)->file_count * sizeof(mdfs_file_t))
+inline size_t mdfs_get_file_list_size(mdfs_t* mdfs) __attribute__((always_inline));
+inline size_t mdfs_get_file_list_size(mdfs_t* mdfs) { 
+	return (mdfs)->file_count * sizeof(mdfs_file_t);
+}
 
 inline uint32_t mdfs_get_filecount(mdfs_t* mdfs) __attribute__((always_inline));
 inline uint32_t mdfs_get_filecount(mdfs_t* mdfs) { return mdfs->file_count; } 
 
 inline const char* mdfs_get_error(mdfs_t* mdfs) __attribute__((always_inline));
 inline const char* mdfs_get_error(mdfs_t* mdfs) { return mdfs->error; }
+
+inline void* mdfs_get_file_location(mdfs_t* mdfs, uint32_t offset) __attribute__((always_inline));
+inline void* mdfs_get_file_location(mdfs_t* mdfs, uint32_t offset)
+{
+	return (void*)(mdfs->target + offset);
+}
+
+inline void* mdfs_get_file_list(mdfs_t* mdfs) __attribute__((always_inline));
+inline void* mdfs_get_file_list(mdfs_t* mdfs) { return (void*)mdfs->file_list; }
 
 #endif // _MDFS_H_

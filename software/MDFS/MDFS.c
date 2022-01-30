@@ -39,8 +39,30 @@ static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset);
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
 
-#define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t**)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t*))
-#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t**)realloc((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t*))
+#define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t))
+// static inline void _MDFS_INCREMENT_FILE_COUNT(mdfs_t* mdfs)
+// {
+//   printf("realloc %p to size %i =", mdfs->file_list, (1+mdfs->file_count)*sizeof(mdfs_file_t));
+//   void* p = realloc((void*)mdfs->file_list, ++mdfs->file_count*sizeof(mdfs_file_t));
+//   if (p == NULL) {
+//     printf("null?, prepare to segfault\n");
+//     return;
+//   }
+//   mdfs->file_list = (mdfs_file_t*)p;
+//   printf("%p\n", mdfs->file_list);
+// }
+#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t))
+// static inline void _MDFS_DECREMENT_FILE_COUNT(mdfs_t* mdfs)
+// {
+//   printf("realloc %p to size %i =", mdfs->file_list, (mdfs->file_count-1)*sizeof(mdfs_file_t));
+//   void* p = realloc((void*)mdfs->file_list, --mdfs->file_count*sizeof(mdfs_file_t));
+//   if (p == NULL) {
+//     printf("null?, prepare to segfault\n");
+//     return;
+//   }
+//   mdfs->file_list = (mdfs_file_t*)p;
+//   printf("%p\n", mdfs->file_list);
+// }
 #define _mdfs_free_entry(entry) free(entry)
 
 
@@ -114,8 +136,7 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
       if (_check_name(target->filename)) continue;
       // Everything makes sense, add it to the list
 			if (i >= mdfs->file_count) _MDFS_INCREMENT_FILE_COUNT(mdfs);
-			mdfs->file_list[count] = (mdfs_file_t*)malloc(sizeof(mdfs_file_t));
-			memcpy((void*)mdfs->file_list[count], &((mdfs_file_t*)mdfs->target)[i], sizeof(mdfs_file_t));
+			memcpy((void*)&mdfs->file_list[count], &((mdfs_file_t*)mdfs->target)[i], sizeof(mdfs_file_t));
 			// // Force last char in name \0
 			// mdfs->file_list[count]->filename[MDFS_MAX_FILENAME-1] = '\0';
 			++count;
@@ -134,7 +155,7 @@ void mdfs_deinit(mdfs_t* mdfs)
   int i = 0;
   for (i = 0; i < mdfs->file_count; ++i)
   {
-    _mdfs_free_entry(mdfs->file_list[i]);
+    //_mdfs_free_entry(mdfs->file_list[i]);
   }
   free(mdfs->file_list);
   free(mdfs);
@@ -161,8 +182,8 @@ int mdfs_get_filename(mdfs_t* mdfs, int index, char* buffer)
 		return -1;
 	}
 	
-	strcpy(buffer, mdfs->file_list[index]->filename);
-	return strlen(mdfs->file_list[index]->filename);
+	strcpy(buffer, mdfs->file_list[index].filename);
+	return strlen(mdfs->file_list[index].filename);
 }
 
 int32_t mdfs_get_filesize(mdfs_t* mdfs, int index)
@@ -172,7 +193,7 @@ int32_t mdfs_get_filesize(mdfs_t* mdfs, int index)
 		snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid index.");
 		return -1;
 	}
-	return mdfs->file_list[index]->size;
+	return mdfs->file_list[index].size;
 }
 
 uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
@@ -182,7 +203,7 @@ uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
 		snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid index.");
 		return -1;
 	}
-	return mdfs->file_list[index]->byte_offset;
+	return mdfs->file_list[index].byte_offset;
 }
 
 /** @brief Add a file to the file list and return it's expected location
@@ -225,7 +246,7 @@ uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
     
     if (i < mdfs->file_count) // Check if there's a file at i
     {
-      next_file = mdfs->file_list[i];
+      next_file = &mdfs->file_list[i];
       if (target + size < next_file->byte_offset) // Is there room before it?
       {
         break;
@@ -245,21 +266,19 @@ uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size)
   }
   mdfs_file_t* new = _mdfs_alloc_entry(filename, size, target);
   int error = _mdfs_insert(mdfs, new, i);
+  _mdfs_free_entry(new);
   switch (error)
   {
   case -1:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "borked index?");
-    _mdfs_free_entry(new);
     return 0;
   case -2:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "No room in file list");
-    _mdfs_free_entry(new);
     return 0;
   case 0:
     return target;
   default:
     snprintf(mdfs->error, MDFS_ERROR_LEN, "unknown error: %i", error);
-    _mdfs_free_entry(new);
     return 0;
   }
 }
@@ -283,11 +302,11 @@ int mdfs_remove_file(mdfs_t* mdfs, const char* filename)
   int count = 0;
   for (i = 0; i < mdfs->file_count; ++i)
   {
-    if (strcmp(filename, mdfs->file_list[i]->filename)) continue; // no match
+    if (strcmp(filename, mdfs->file_list[i].filename)) continue; // no match
     // move all remaining entries 
     for (j = i+1; j < mdfs->file_count; ++j)
     {
-      memcpy(mdfs->file_list[j-1], mdfs->file_list[j], sizeof(mdfs_file_t));
+      memcpy((void*)&mdfs->file_list[j-1], (void*)&mdfs->file_list[j], sizeof(mdfs_file_t));
     }
     // Now decrement filelist
     _MDFS_DECREMENT_FILE_COUNT(mdfs);
@@ -337,10 +356,10 @@ mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode)
   }
   mdfs_FILE* fd = malloc(sizeof(mdfs_FILE));
   // Set values and copy filename
-  fd->base = (void*)((uint32_t)mdfs->target + mdfs->file_list[index]->byte_offset);
+  fd->base = (void*)((uint32_t)mdfs->target + mdfs->file_list[index].byte_offset);
   fd->offset = 0;
-  fd->size = mdfs->file_list[index]->size;
-  memcpy((void*)fd->filename, (void*)mdfs->file_list[index]->filename, MDFS_MAX_FILENAME);
+  fd->size = mdfs->file_list[index].size;
+  memcpy((void*)fd->filename, (void*)mdfs->file_list[index].filename, MDFS_MAX_FILENAME);
   fd->index = index;
   return fd;
 }
@@ -445,15 +464,12 @@ int mdfs_fgetc(mdfs_FILE* f)
 
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
 {
-	// This function can recurse up to MDFS_MAX_FILECOUNT times.
-	// Make sure there is stack space.
-	
 	if (mdfs->file_count >= MDFS_MAX_FILECOUNT) return -2; // Error: No room
 	if (index == mdfs->file_count)
 	{
-		// New file at end of list
+		// New file at end of list, make room and copy entry into it.
 		_MDFS_INCREMENT_FILE_COUNT(mdfs);
-		mdfs->file_list[index] = entry;
+    memcpy((void*)&mdfs->file_list[index], (void*)entry, sizeof(mdfs_file_t));
 		return 0;
 	}
 	else if (index > mdfs->file_count)
@@ -463,10 +479,18 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
 	}
 	else
 	{
-		// Insert at existing index. shift everything down
-		mdfs_file_t* temp_entry = mdfs->file_list[index];
-		mdfs->file_list[index] = entry;
-		return _mdfs_insert(mdfs, temp_entry, index+1);
+		// Insert at existing index. 
+    // Make room
+		_MDFS_INCREMENT_FILE_COUNT(mdfs);
+    // Shift everything down
+    // Insert at 0 with file_count 3->4: copy items at 0..3 to 1..4
+    memcpy(
+      (void*)&mdfs->file_list[index+1],
+      (void*)&mdfs->file_list[index], 
+      sizeof(mdfs_file_t) * (mdfs->file_count - index - 1));
+    // Copy entry into index
+    memcpy((void*)&mdfs->file_list[index], (void*)entry, sizeof(mdfs_file_t));
+		return 0;
 	}
 }
 
@@ -476,7 +500,7 @@ static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
   int i = 0;
   for (i = 0; i < mdfs->file_count; ++i)
   {
-    if (strcmp(mdfs->file_list[i]->filename, filename) == 0) return i;
+    if (strcmp(mdfs->file_list[i].filename, filename) == 0) return i;
   }
   return -1;
 }
