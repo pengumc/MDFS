@@ -483,11 +483,17 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
     // Make room
 		_MDFS_INCREMENT_FILE_COUNT(mdfs);
     // Shift everything down
-    // Insert at 0 with file_count 3->4: copy items at 0..3 to 1..4
-    memcpy(
-      (void*)&mdfs->file_list[index+1],
-      (void*)&mdfs->file_list[index], 
-      sizeof(mdfs_file_t) * (mdfs->file_count - index - 1));
+    // ex: Insert at 1 with file_count 5->6: copy items at 1..5 to 2..6
+    // copy to 5 to 6 first, then move back. (we're not betting on cache/memcpy 
+    // implementation fixing this for us)
+    int i;
+    for (i = mdfs->file_count-1; i > index+1; --i)
+    {
+      memcpy(
+        (void*)&mdfs->file_list[i],
+        (void*)&mdfs->file_list[i-1],
+        sizeof(mdfs_file_t));
+    }
     // Copy entry into index
     memcpy((void*)&mdfs->file_list[index], (void*)entry, sizeof(mdfs_file_t));
 		return 0;

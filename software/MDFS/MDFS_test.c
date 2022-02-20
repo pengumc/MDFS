@@ -581,6 +581,37 @@ int T_mdfs_remove_file_from_emtpy_list_expect_0()
   return result;
 }
 
+int T_mdfs_remove_and_add()
+{
+  // If this doesn't segfault, it's probably fine
+  printf("T_mdfs_remove_and_add: ");
+  int result = 0;
+  const void* fs = fs_empty(0);
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+
+  mdfs_add_file(mdfs, "file1", 9990);
+  mdfs_add_file(mdfs, "file2", 1);
+  mdfs_add_file(mdfs, "file3", 16);
+  mdfs_add_file(mdfs, "file4", 121);
+  mdfs_add_file(mdfs, "file5", 939);
+  mdfs_add_file(mdfs, "file6", 4232);
+
+  // print_file_list(mdfs);
+
+  mdfs_remove_file(mdfs, "file4");
+
+  // print_file_list(mdfs);
+
+  mdfs_add_file(mdfs, "file4", 120);
+
+  // print_file_list(mdfs);
+
+  printf("OK\n");
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
 int T_mdfs_remove_file()
 {
   return 
@@ -589,6 +620,7 @@ int T_mdfs_remove_file()
     T_mdfs_remove_file_from_full_list_expect_1() |
     T_mdfs_remove_file_nonexisting_expect_0() |
     T_mdfs_remove_file_unique_expect_1() |
+    T_mdfs_remove_and_add() |
     0;
 }
 
