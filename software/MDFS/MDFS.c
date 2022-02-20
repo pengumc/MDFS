@@ -487,7 +487,7 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
     // copy to 5 to 6 first, then move back. (we're not betting on cache/memcpy 
     // implementation fixing this for us)
     int i;
-    for (i = mdfs->file_count-1; i > index+1; --i)
+    for (i = mdfs->file_count-1; i > index; --i)
     {
       memcpy(
         (void*)&mdfs->file_list[i],
