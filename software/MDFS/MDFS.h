@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 /** @brief Maximum number of chars in a name, \0 included */
-#define MDFS_MAX_FILENAME (120)
+#define MDFS_MAX_FILENAME (116)
 
 #define MDFS_BLOCKSIZE (65536)
 #define MDFS_MAX_FILECOUNT (512) // = 64 kB block 0 with 128 byte entries
@@ -19,13 +19,15 @@ typedef struct _mdfs_iobuf
   uint32_t offset;
   void* base;
   int32_t size;
+	uint32_t crc;
   char filename[MDFS_MAX_FILENAME];
 } mdfs_FILE;
 
-
+// Structure of a entry in the file list
 typedef struct MDFSFile {
 	int32_t size;
 	uint32_t byte_offset; ///< From start of FS (yes I don't expect > 4 GB)
+	uint32_t crc;
 	char filename[MDFS_MAX_FILENAME];
 } mdfs_file_t;
 
@@ -74,5 +76,14 @@ inline void* mdfs_get_file_location(mdfs_t* mdfs, uint32_t offset)
 
 inline void* mdfs_get_file_list(mdfs_t* mdfs) __attribute__((always_inline));
 inline void* mdfs_get_file_list(mdfs_t* mdfs) { return (void*)mdfs->file_list; }
+
+// CRC functions
+#define MDFS_CRC_POLY 0xc9d204f5
+uint32_t mdfs_calc_crc(const void* data, int32_t size);
+inline uint32_t mdfs_get_stored_crc(mdfs_file_t* file) __attribute__((always_inline));
+inline uint32_t mdfs_get_stored_crc(mdfs_file_t* file) { return file->crc; }
+int mdfs_check_crc(const mdfs_FILE* f);
+int mdfs_set_crc(mdfs_t* mdfs, const char* filename, uint32_t crc);
+int mdfs_update_crc(mdfs_t* mdfs, const char* filename);
 
 #endif // _MDFS_H_

@@ -49,11 +49,13 @@ static const void* fs_factory(int init, uint32_t offset_A, uint32_t offset_B, co
   // Setup file list
   ((uint32_t*)p)[0] = len_A; // Size
   ((uint32_t*)p)[1] = offset_A; // Offset
-  sprintf(p+8, "file_A");
+  ((uint32_t*)p)[2] = 0; // crc
+  sprintf(p+12, "file_A");
   p += 128;
   ((uint32_t*)p)[0] = len_B; // Size
   ((uint32_t*)p)[1] = offset_B; // Offset
-  sprintf(p+8, "file_B");
+  ((uint32_t*)p)[2] = 0; // crc
+  sprintf(p+12, "file_B");
   p = fs + offset_A;
   memcpy(p, (void*)string_A, len_A); // strlen does not include \0
   p = fs + offset_B;
@@ -224,6 +226,7 @@ static int T_mdfs_fopen_existing_expect_ptr()
   if (f == NULL) 
   {
     printf("FAILED (fopen('file_A') = %p)\n", f);
+    printf("%s\n", mdfs->error);
     test_result = -1;
   }
   mdfs_fclose(f);
@@ -635,7 +638,15 @@ int T_mdfs_fgetc_read_till_eof()
   const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
   mdfs_t* mdfs = mdfs_init_simple(fs);
   mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
-
+  if (f == NULL)
+  {
+    printf("FAILED (f == NULL, %s)\n", mdfs_get_error(mdfs));
+    result = -1;
+    mdfs_fclose(f);
+    mdfs_deinit(mdfs);
+    free((void*)fs);
+    return result;
+  }
   char buf[30];
   size_t L = strlen(content);
   int i = 0;
