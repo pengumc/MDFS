@@ -39,30 +39,8 @@ static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset);
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
 
-#define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t))
-// static inline void _MDFS_INCREMENT_FILE_COUNT(mdfs_t* mdfs)
-// {
-//   printf("realloc %p to size %i =", mdfs->file_list, (1+mdfs->file_count)*sizeof(mdfs_file_t));
-//   void* p = realloc((void*)mdfs->file_list, ++mdfs->file_count*sizeof(mdfs_file_t));
-//   if (p == NULL) {
-//     printf("null?, prepare to segfault\n");
-//     return;
-//   }
-//   mdfs->file_list = (mdfs_file_t*)p;
-//   printf("%p\n", mdfs->file_list);
-// }
-#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t))
-// static inline void _MDFS_DECREMENT_FILE_COUNT(mdfs_t* mdfs)
-// {
-//   printf("realloc %p to size %i =", mdfs->file_list, (mdfs->file_count-1)*sizeof(mdfs_file_t));
-//   void* p = realloc((void*)mdfs->file_list, --mdfs->file_count*sizeof(mdfs_file_t));
-//   if (p == NULL) {
-//     printf("null?, prepare to segfault\n");
-//     return;
-//   }
-//   mdfs->file_list = (mdfs_file_t*)p;
-//   printf("%p\n", mdfs->file_list);
-// }
+#define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE)
+#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE)
 #define _mdfs_free_entry(entry) free(entry)
 
 
@@ -97,6 +75,19 @@ static int _check_name(const char* name)
   }
   if (i >= MDFS_MAX_FILENAME || i == 0) return 1;
   else return 0;
+}
+
+static void _mdfs_update_file_list_crc(mdfs_t* mdfs)
+{
+  if (mdfs->file_count <= 0) return;
+  // size 0 is appended to end of file list to make builder stop
+  // next 4 bytes is CRC
+  // The space is already allocated
+  
+  uint32_t crc = mdfs_calc_crc(mdfs->file_list, mdfs->file_count * sizeof(mdfs_file_t));
+  uint32_t* p = (uint32_t*)&mdfs->file_list[mdfs->file_count];
+  *p++ = 0;
+  *p = crc;
 }
 
 /** @brief Build the list of files from block 0
@@ -142,6 +133,7 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
 			++count;
 		}
 	}
+  _mdfs_update_file_list_crc(mdfs);
 	return count;
 }
 
@@ -324,6 +316,7 @@ int mdfs_remove_file(mdfs_t* mdfs, const char* filename)
     --i;
     ++count;
   }
+  if (count) _mdfs_update_file_list_crc(mdfs);
   return count;
 }
 
@@ -457,10 +450,11 @@ int mdfs_feof(mdfs_FILE* f)
 
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset)
 {
-  mdfs_file_t* new_entry = malloc(sizeof(mdfs_file_t));
+  mdfs_file_t* new_entry = calloc(1, sizeof(mdfs_file_t));
   snprintf(new_entry->filename, MDFS_MAX_FILENAME, "%s", filename);
   new_entry->size = filesize;
   new_entry->byte_offset = byte_offset;
+  new_entry->crc = 0;
   return new_entry;
 }
 
@@ -481,6 +475,7 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
 		// New file at end of list, make room and copy entry into it.
 		_MDFS_INCREMENT_FILE_COUNT(mdfs);
     memcpy((void*)&mdfs->file_list[index], (void*)entry, sizeof(mdfs_file_t));
+    _mdfs_update_file_list_crc(mdfs);
 		return 0;
 	}
 	else if (index > mdfs->file_count)
@@ -507,6 +502,7 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index)
     }
     // Copy entry into index
     memcpy((void*)&mdfs->file_list[index], (void*)entry, sizeof(mdfs_file_t));
+    _mdfs_update_file_list_crc(mdfs);
 		return 0;
 	}
 }
@@ -532,7 +528,8 @@ static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename)
  * normal representation.
  * @param data A pointer to the data to calculate the crc over.
  * @param size The number of bytes in data.
- * @returns the calculated crc.
+ * @returns the calculated crc. 0xFFFFFFFF in case of invalid sizes or NULL 
+ * data.
  * @ingroup mdfs
  */
 uint32_t mdfs_calc_crc(const void* data, int32_t size)
@@ -608,7 +605,7 @@ uint32_t mdfs_calc_crc(const void* data, int32_t size)
     0xCBDEA05E, 0xF70E4A82, 0xB27F75E6, 0x8EAF9F3A};
 
   uint32_t crc = 0xffffffff;
-  if (size <= 0) return crc;
+  if (size <= 0 || data == NULL) return crc;
 	while (size-- !=0)
   {
     crc = _table[(((uint8_t) crc) ^ *(uint8_t*)(data++))] ^ (crc >> 8);
