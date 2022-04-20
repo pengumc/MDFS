@@ -91,7 +91,12 @@ inline void* mdfs_get_file_list(mdfs_t* mdfs) { return (void*)mdfs->file_list; }
 uint32_t mdfs_calc_crc(const void* data, int32_t size);
 inline uint32_t mdfs_get_stored_crc(mdfs_FILE* f) __attribute__((always_inline));
 inline uint32_t mdfs_get_stored_crc(mdfs_FILE* f) { return f->crc; }
+inline uint32_t mdfs_get_file_list_crc(mdfs_t* mdfs) __attribute__((always_inline));
+inline uint32_t mdfs_get_file_list_crc(mdfs_t* mdfs) { 
+	return *((uint32_t*)(&mdfs->file_list[mdfs->file_count]) + 1);
+}
 int mdfs_check_crc(const mdfs_FILE* f);
+int mdfs_check_file_list_crc(mdfs_t* mdfs);
 int mdfs_set_crc(mdfs_t* mdfs, const char* filename, uint32_t crc);
 int mdfs_update_crc(mdfs_t* mdfs, const char* filename);
 

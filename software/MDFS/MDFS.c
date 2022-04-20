@@ -55,7 +55,7 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
 mdfs_t* mdfs_init_simple(const void* target) {
 	mdfs_t* mdfs = (mdfs_t*)malloc(sizeof(mdfs_t));
 	mdfs->target = target;
-	mdfs->file_list = NULL;
+	mdfs->file_list = (mdfs_file_t*)calloc(2, sizeof(uint32_t)); // room for crc
 	mdfs->file_count = 0;
 	memset((void*)mdfs->error, 0, MDFS_ERROR_LEN);
 	_mdfs_build_file_list(mdfs);
@@ -133,7 +133,10 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
 			++count;
 		}
 	}
-  _mdfs_update_file_list_crc(mdfs);
+  // Copy crc from fs
+  uint32_t* fs_crc = (uint32_t*)(&((mdfs_file_t*)mdfs->target)[count]) + 1;
+  uint32_t* mem_crc = ((uint32_t*)&mdfs->file_list[count]) + 1;
+  *mem_crc = *fs_crc;
 	return count;
 }
 
@@ -316,7 +319,7 @@ int mdfs_remove_file(mdfs_t* mdfs, const char* filename)
     --i;
     ++count;
   }
-  if (count) _mdfs_update_file_list_crc(mdfs);
+  _mdfs_update_file_list_crc(mdfs);
   return count;
 }
 
@@ -628,6 +631,24 @@ int mdfs_check_crc(const mdfs_FILE* f)
   void* data = f->base + f->offset;
   uint32_t crc = mdfs_calc_crc(data, f->size);
   if (crc == f->crc) return 1;
+  else return 0;
+}
+
+
+/** @brief Check the file list crc
+ * 
+ * @copybrief mdfs_check_file_list_crc
+ * Checks against the stored crc. The crc includes all entries in the list
+ * including the bytes not used in the filename.
+ * @param mdfs The mdfs
+ * @returns 1 when values match. 0 otherwise.
+ * @ingroup mdfs
+ */
+int mdfs_check_file_list_crc(mdfs_t* mdfs)
+{
+  uint32_t calc = mdfs_calc_crc(mdfs->file_list, mdfs->file_count * sizeof(mdfs_file_t));
+  uint32_t stored = mdfs_get_file_list_crc(mdfs);
+  if (calc == stored) return 1;
   else return 0;
 }
 
