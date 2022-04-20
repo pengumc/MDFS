@@ -44,6 +44,7 @@ void mdfs_deinit(mdfs_t* mdfs);
 int mdfs_get_filename(mdfs_t* mdfs, int index, char* buffer);
 int32_t mdfs_get_filesize(mdfs_t* mdfs, int index);
 uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index);
+uint32_t mdfs_get_file_crc(mdfs_t* mdfs, int index);
 uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size);
 int mdfs_remove_file(mdfs_t* mdfs, const char* filename);
 
@@ -72,6 +73,13 @@ inline void* mdfs_get_file_location(mdfs_t* mdfs, uint32_t offset) __attribute__
 inline void* mdfs_get_file_location(mdfs_t* mdfs, uint32_t offset)
 {
 	return (void*)(mdfs->target + offset);
+}
+
+inline void* mdfs_get_open_file_location(mdfs_FILE* f) __attribute__((always_inline));
+inline void* mdfs_get_open_file_location(mdfs_FILE* f)
+{
+	if (f == NULL) return NULL;
+	else return (void*)(f->base + f->offset);
 }
 
 inline void* mdfs_get_file_list(mdfs_t* mdfs) __attribute__((always_inline));

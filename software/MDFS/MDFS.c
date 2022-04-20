@@ -206,6 +206,16 @@ uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
 	return mdfs->file_list[index].byte_offset;
 }
 
+uint32_t mdfs_get_file_crc(mdfs_t* mdfs, int index)
+{
+  if (index < 0 || index >= mdfs->file_count)
+  {
+		snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid index.");
+		return -1;
+  }
+  return mdfs->file_list[index].crc;
+}
+
 /** @brief Add a file to the file list and return it's expected location
  * 
  * @copybrief mdfs_add_file
@@ -359,6 +369,7 @@ mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode)
   fd->base = (void*)((uint32_t)mdfs->target + mdfs->file_list[index].byte_offset);
   fd->offset = 0;
   fd->size = mdfs->file_list[index].size;
+  fd->crc = mdfs->file_list[index].crc;
   memcpy((void*)fd->filename, (void*)mdfs->file_list[index].filename, MDFS_MAX_FILENAME);
   fd->index = index;
   return fd;
@@ -529,6 +540,7 @@ uint32_t mdfs_calc_crc(const void* data, int32_t size)
   // default crc impl. don't care about speed
   // https://wiki.osdev.org/CRC32
   // polynomial = 0x93a409eb (bit per term, x^32 implicit)
+  // Below table is generated with included crc32_gen_table.py
   static const uint32_t _table[256] = {
     0x00000000, 0x3CD0EADC, 0x79A1D5B8, 0x45713F64,
     0xF343AB70, 0xCF9341AC, 0x8AE27EC8, 0xB6329414,
@@ -596,11 +608,11 @@ uint32_t mdfs_calc_crc(const void* data, int32_t size)
     0xCBDEA05E, 0xF70E4A82, 0xB27F75E6, 0x8EAF9F3A};
 
   uint32_t crc = 0xffffffff;
+  if (size <= 0) return crc;
 	while (size-- !=0)
   {
     crc = _table[(((uint8_t) crc) ^ *(uint8_t*)(data++))] ^ (crc >> 8);
   } 
-	// return (~crc); also works
 	return (crc ^ 0xffffffff);
 }
 
