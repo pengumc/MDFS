@@ -196,7 +196,7 @@ uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index)
 	if (index < 0 || index >= mdfs->file_count)
 	{
 		snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid index.");
-		return -1;
+		return 0;
 	}
 	return mdfs->file_list[index].byte_offset;
 }
@@ -206,7 +206,7 @@ uint32_t mdfs_get_file_crc(mdfs_t* mdfs, int index)
   if (index < 0 || index >= mdfs->file_count)
   {
 		snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid index.");
-		return -1;
+		return 0;
   }
   return mdfs->file_list[index].crc;
 }
