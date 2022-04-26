@@ -16,7 +16,11 @@ void print_file_list(mdfs_t* mdfs)
 	{
 		if (mdfs_get_filename(mdfs, i, buf) > 0) 
 		{
-			printf("%i: %s (%i bytes) @ 0x%08X\n", i, buf, mdfs_get_filesize(mdfs, i), mdfs_get_file_offset(mdfs, i));
+			printf("%i: %s (%i bytes) @ 0x%08X, CRC=0x%08X\n",
+        i, buf,
+        mdfs_get_filesize(mdfs, i),
+        mdfs_get_file_offset(mdfs, i),
+        mdfs_get_file_crc(mdfs, i));
 		}
 		else
 		{
@@ -30,7 +34,7 @@ void print_file_list(mdfs_t* mdfs)
 /* Return a filesystem of 3 blocks for testing.
  * Contains 2 files, "file_A" and "file_B" on offsets A and B 
  * contents of the files are string A and B (null char not included)
- * Unused space is set to 0xFF
+ * Unused space is set to 'init'
  * use free() to deallocate when done
  * You will get NULL if not everything fits into 3 blocks
  */
@@ -49,15 +53,19 @@ static const void* fs_factory(int init, uint32_t offset_A, uint32_t offset_B, co
   // Setup file list
   ((uint32_t*)p)[0] = len_A; // Size
   ((uint32_t*)p)[1] = offset_A; // Offset
-  sprintf(p+8, "file_A");
+  ((uint32_t*)p)[2] = mdfs_calc_crc(string_A, len_A); // crc
+  sprintf(p+12, "file_A");
   p += 128;
   ((uint32_t*)p)[0] = len_B; // Size
   ((uint32_t*)p)[1] = offset_B; // Offset
-  sprintf(p+8, "file_B");
+  ((uint32_t*)p)[2] = mdfs_calc_crc(string_B, len_B);
+  sprintf(p+12, "file_B");
   p = fs + offset_A;
   memcpy(p, (void*)string_A, len_A); // strlen does not include \0
   p = fs + offset_B;
   memcpy(p, (void*)string_B, len_B);
+  // Create crc of file list
+  *(uint32_t*)((uint8_t*)fs + 260) = mdfs_calc_crc(fs, 256);;
   return fs;
 }
 
@@ -66,6 +74,7 @@ static const void* fs_empty(int init)
 {
   void* fs = malloc(3*MDFS_BLOCKSIZE);
   memset(fs, init, 3*MDFS_BLOCKSIZE);
+  *((uint32_t*)fs + 1) = mdfs_calc_crc(fs, 0);
   return fs;
 }
 
@@ -224,6 +233,7 @@ static int T_mdfs_fopen_existing_expect_ptr()
   if (f == NULL) 
   {
     printf("FAILED (fopen('file_A') = %p)\n", f);
+    printf("%s\n", mdfs->error);
     test_result = -1;
   }
   mdfs_fclose(f);
@@ -253,11 +263,12 @@ int T_mdfs_fopen()
 // --------------------------------------------------------------------
 int T_mdfs_add_file_size_0_expect_error()
 {
+  printf("T_mdfs_add_file_size_0_expect_error: ");
   int result = -1;
   const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "This is file A", "this is file B");
   mdfs_t* mdfs = mdfs_init_simple(fs);
   uint32_t offset = mdfs_add_file(mdfs, "test0", 0);
-  printf("T_mdfs_add_file_size_0_expect_error: offset = 0x%08X ", offset);
+  printf("offset = 0x%08X ", offset);
   if (offset < MDFS_BLOCKSIZE)
   {
     printf(" OK\n");
@@ -635,7 +646,15 @@ int T_mdfs_fgetc_read_till_eof()
   const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
   mdfs_t* mdfs = mdfs_init_simple(fs);
   mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
-
+  if (f == NULL)
+  {
+    printf("FAILED (f == NULL, %s)\n", mdfs_get_error(mdfs));
+    result = -1;
+    mdfs_fclose(f);
+    mdfs_deinit(mdfs);
+    free((void*)fs);
+    return result;
+  }
   char buf[30];
   size_t L = strlen(content);
   int i = 0;
@@ -891,6 +910,266 @@ int T_mdfs_fread()
 }
 
 // --------------------------------------------------------------------
+// CRC stuff
+// --------------------------------------------------------------------
+int T_mdfs_calc_crc_test_text_expect_0x60f44eeb()
+{
+  printf("T_mdfs_calc_crc_test_text_expect_0x60f44eeb: ");
+  int result = 0;
+  // Calculate a crc and check against known answer
+  const char* content = "crc testing text";
+  uint32_t crc = mdfs_calc_crc(content, strlen(content));
+  if (crc != 0x60f44eeb)
+  {
+    printf("FAILED (crc != 0x60f44eeb but 0x%08X)\n", crc);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+  return result;
+}
+
+int T_mdfs_calc_crc_length_0_expect_0xFFFFFFFF()
+{
+  printf("T_mdfs_calc_crc_length_0_expect_0xFFFFFFFF: ");
+  int result = 0;
+  uint32_t crc = mdfs_calc_crc(NULL, 0);
+  if (crc != 0xFFFFFFFF)
+  {
+    printf("FAILED (crc = 0x%08X\n", crc);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+  return result;
+}
+
+int T_mdfs_calc_crc_negative_length_expect_0xFFFFFFFF()
+{
+  printf("T_mdfs_calc_crc_negative_length_expect_0xFFFFFFFF: ");
+  int result = 0;
+  uint32_t crc = mdfs_calc_crc(NULL, -1);
+  if (crc != 0xFFFFFFFF)
+  {
+    printf("FAILED (crc = 0x%08X\n", crc);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+  return result;
+}
+
+int T_mdfs_check_crc_test_file_expect_1()
+{
+  printf("T_mdfs_check_crc_test_file_expect_1: ");
+  int result = 0;
+  // Create fs where file A contains text with known crc
+  const char* content = "crc testing text";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
+
+  if (f == NULL)
+  {
+    printf("FAILED (f == NULL, %s)\n", mdfs_get_error(mdfs));
+    result = -1;
+    mdfs_deinit(mdfs);
+    free((void*)fs);
+    return result;
+  }
+
+  int ret_val = mdfs_check_crc(f);
+  if (ret_val == 1)
+  {
+    printf("OK\n");
+  }
+  else
+  {
+    printf("FAILED (check returned %i)\n", ret_val);
+    result = -1;
+  }
+  
+
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_check_crc_corrupted_file_expect_0()
+{
+  printf("T_mdfs_check_crc_corrupted_file_expect_0: ");
+  int result = 0;
+  // Create fs where file A contains text with known crc
+  const char* content = "crc testing text";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
+  if (f == NULL)
+  {
+    printf("FAILED (f == NULL, %s)\n", mdfs_get_error(mdfs));
+    result = -1;
+    mdfs_deinit(mdfs);
+    free((void*)fs);
+    return result;
+  }
+  // change a byte in file_A
+  void* p = mdfs_get_open_file_location(f);
+  *(uint8_t*)p = 1; // corrupt first byte
+
+  int ret_val = mdfs_check_crc(f);
+  if (ret_val == 0)
+  {
+    printf("OK\n");
+  }
+  else
+  {
+    printf("FAILED (check returned %i)\n", ret_val);
+    result = -1;
+  }
+ 
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_check_crc_corrupted_crc_expect_0()
+{
+  printf("T_mdfs_check_crc_corrupted_crc_expect_0: ");
+  int result = 0;
+  // Create fs where file A contains text with known crc
+  const char* content = "crc testing text";
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, content, "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  // Manually change crc to be wrong
+  if (mdfs_set_crc(mdfs, "file_A", 0x3))
+  {
+    printf("FAILED (couldn't set crc: %s)\n", mdfs_get_error(mdfs));
+    result = -1;
+    mdfs_deinit(mdfs);
+    free((void*)fs);
+    return result;
+  }
+
+  mdfs_FILE* f = mdfs_fopen(mdfs, "file_A", "r");
+  if (f == NULL)
+  {
+    printf("FAILED (f == NULL, %s)\n", mdfs_get_error(mdfs));
+    result = -1;
+    mdfs_deinit(mdfs);
+    free((void*)fs);
+    return result;
+  }
+
+  int ret_val = mdfs_check_crc(f);
+  if (ret_val == 0)
+  {
+    printf("OK\n");
+  }
+  else
+  {
+    printf("FAILED (check returned %i)\n", ret_val);
+    result = -1;
+  }
+ 
+  mdfs_fclose(f);
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_check_file_list_crc_populated_expect_1()
+{
+  printf("T_mdfs_check_file_list_crc_populated_expect_1: ");
+  int result = 0;
+  // Create fs with some files
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "this is file A", "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+
+  // file list crc should be ok and not 0 (likely)
+  int ret_val = mdfs_check_file_list_crc(mdfs);
+  if (ret_val != 1)
+  {
+    printf("FAILED (check returned %i)\n", ret_val);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_check_file_list_crc_empty_expect_1()
+{
+  printf("T_mdfs_check_file_list_crc_empty_expect_1: ");
+  int result = 0;
+  const void* fs = fs_empty(0xff);
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+
+  int ret_val = mdfs_check_file_list_crc(mdfs);
+  if (ret_val != 1)
+  {
+    printf("FAILED (check returned %i)\n", ret_val);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;
+}
+
+int T_mdfs_check_file_list_crc_after_add_expect_changed()
+{
+  printf("T_mdfs_check_file_list_crc_after_add_expect_changed: ");
+  int result = 0;
+  const void* fs = fs_factory(0xFF, MDFS_BLOCKSIZE, MDFS_BLOCKSIZE+50, "this is file A", "this is file B");
+  mdfs_t* mdfs = mdfs_init_simple(fs);
+  uint32_t crc = mdfs_get_file_list_crc(mdfs);
+  mdfs_add_file(mdfs, "ladida", 33);
+  uint32_t new_crc = mdfs_get_file_list_crc(mdfs);
+  if (crc == new_crc)
+  {
+    printf("FAILED (crc did not change. 0x%08X\n", crc);
+    result = -1;
+  }
+  else
+  {
+    printf("OK\n");
+  }
+  mdfs_deinit(mdfs);
+  free((void*)fs);
+  return result;  
+}
+
+int T_mdfs_crc()
+{
+  return 
+    T_mdfs_calc_crc_test_text_expect_0x60f44eeb() |
+    T_mdfs_calc_crc_length_0_expect_0xFFFFFFFF() |
+    T_mdfs_calc_crc_negative_length_expect_0xFFFFFFFF() |
+    T_mdfs_check_crc_test_file_expect_1() |
+    T_mdfs_check_crc_corrupted_file_expect_0() |
+    T_mdfs_check_crc_corrupted_crc_expect_0() |
+    T_mdfs_check_file_list_crc_populated_expect_1() |
+    T_mdfs_check_file_list_crc_empty_expect_1() |
+    T_mdfs_check_file_list_crc_after_add_expect_changed();
+    
+}
+
+// --------------------------------------------------------------------
 int main(int argc, char** argv)
 {
   int result = 0;
@@ -900,6 +1179,7 @@ int main(int argc, char** argv)
   result |= T_mdfs_remove_file();
   result |= T_mdfs_fgetc();
   result |= T_mdfs_fread();
+  result |= T_mdfs_crc();
   printf("\n == %s ==\n", result ? "FAILED" : "PASSED");
   return result;
 }

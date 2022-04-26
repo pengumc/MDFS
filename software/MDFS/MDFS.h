@@ -3,31 +3,34 @@
 
 #include <stdint.h>
 /** @brief Maximum number of chars in a name, \0 included */
-#define MDFS_MAX_FILENAME (120)
+#define MDFS_MAX_FILENAME (116)
 
 #define MDFS_BLOCKSIZE (65536)
-#define MDFS_MAX_FILECOUNT (512) // = 64 kB block 0 with 128 byte entries
 #define MDFS_MAX_FILESIZE (1073741824) // = 1 GB
 #define MDFS_ERROR_LEN (80)
 #define MDFS_STATE_CLOSED (0)
 #define MDFS_STATE_OPEN (1)
 #define MDFS_EOF EOF
+#define MDFS_EXTRA_CRC_SIZE (8) // Bytes to append for CRC to file list
 
 typedef struct _mdfs_iobuf
 {
-  int index;
-  uint32_t offset;
-  void* base;
+  int index; ///< Index in file list at time of opening
+  uint32_t offset; ///< Read position
+  void* base; ///< Absolute start address
   int32_t size;
+	uint32_t crc; ///< Copied at time of opening
   char filename[MDFS_MAX_FILENAME];
 } mdfs_FILE;
 
-
+// Structure of a entry in the file list
 typedef struct MDFSFile {
 	int32_t size;
 	uint32_t byte_offset; ///< From start of FS (yes I don't expect > 4 GB)
+	uint32_t crc;
 	char filename[MDFS_MAX_FILENAME];
 } mdfs_file_t;
+#define MDFS_MAX_FILECOUNT (MDFS_BLOCKSIZE/sizeof(struct MDFSFile)-1) // = 511
 
 typedef struct MDFS {
 	const void* target;
@@ -42,6 +45,7 @@ void mdfs_deinit(mdfs_t* mdfs);
 int mdfs_get_filename(mdfs_t* mdfs, int index, char* buffer);
 int32_t mdfs_get_filesize(mdfs_t* mdfs, int index);
 uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index);
+uint32_t mdfs_get_file_crc(mdfs_t* mdfs, int index);
 uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size);
 int mdfs_remove_file(mdfs_t* mdfs, const char* filename);
 
@@ -57,7 +61,7 @@ int mdfs_fgetc(mdfs_FILE* f);
 #define mdfs_passthrough_stdin(mdfs) mdfs_fopen((mdfs), "stdin", "r")
 inline size_t mdfs_get_file_list_size(mdfs_t* mdfs) __attribute__((always_inline));
 inline size_t mdfs_get_file_list_size(mdfs_t* mdfs) { 
-	return (mdfs)->file_count * sizeof(mdfs_file_t);
+	return (mdfs)->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE;
 }
 
 inline uint32_t mdfs_get_filecount(mdfs_t* mdfs) __attribute__((always_inline));
@@ -72,7 +76,28 @@ inline void* mdfs_get_file_location(mdfs_t* mdfs, uint32_t offset)
 	return (void*)(mdfs->target + offset);
 }
 
+inline void* mdfs_get_open_file_location(mdfs_FILE* f) __attribute__((always_inline));
+inline void* mdfs_get_open_file_location(mdfs_FILE* f)
+{
+	if (f == NULL) return NULL;
+	else return (void*)(f->base + f->offset);
+}
+
 inline void* mdfs_get_file_list(mdfs_t* mdfs) __attribute__((always_inline));
 inline void* mdfs_get_file_list(mdfs_t* mdfs) { return (void*)mdfs->file_list; }
+
+// CRC functions
+#define MDFS_CRC_POLY 0xc9d204f5
+uint32_t mdfs_calc_crc(const void* data, int32_t size);
+inline uint32_t mdfs_get_stored_crc(mdfs_FILE* f) __attribute__((always_inline));
+inline uint32_t mdfs_get_stored_crc(mdfs_FILE* f) { return f->crc; }
+inline uint32_t mdfs_get_file_list_crc(mdfs_t* mdfs) __attribute__((always_inline));
+inline uint32_t mdfs_get_file_list_crc(mdfs_t* mdfs) { 
+	return *((uint32_t*)(&mdfs->file_list[mdfs->file_count]) + 1);
+}
+int mdfs_check_crc(const mdfs_FILE* f);
+int mdfs_check_file_list_crc(mdfs_t* mdfs);
+int mdfs_set_crc(mdfs_t* mdfs, const char* filename, uint32_t crc);
+int mdfs_update_crc(mdfs_t* mdfs, const char* filename);
 
 #endif // _MDFS_H_
