@@ -208,6 +208,11 @@ uint32_t mdfs_get_file_crc(mdfs_t* mdfs, int index)
 		snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid index.");
 		return 0;
   }
+  if (mdfs->file_list[index].crc == 0)
+  {
+    snprintf(mdfs->error, MDFS_ERROR_LEN, "No crc set.");
+    return 0;
+  }
   return mdfs->file_list[index].crc;
 }
 
@@ -321,6 +326,35 @@ int mdfs_remove_file(mdfs_t* mdfs, const char* filename)
   }
   _mdfs_update_file_list_crc(mdfs);
   return count;
+}
+
+
+/** @brief Rename a file
+ * 
+ * @copybrief mdfs_rename_file. Only the first occurence will be renamed.
+ * 
+ * @returns 1 when successful, 0 otherwise, error is set in that case.
+ * @ingroup mdfs
+ */
+int mdfs_rename_file(mdfs_t* mdfs, const char* filename, const char* newname)
+{
+  if (_check_name(filename) || _check_name(newname))
+  {
+    snprintf(mdfs->error, MDFS_ERROR_LEN, "Invalid name");
+    return 0;
+  }
+  
+  int index = _mdfs_get_file_index(mdfs, filename);
+  if (index < 0)
+  {
+    snprintf(mdfs->error, MDFS_ERROR_LEN, "File not found");
+    return 0;
+  }
+  printf("renaming %i (%s) to %s\n", index, filename, newname);
+
+  // Copy newname, including \0
+  memcpy(mdfs->file_list[index].filename, newname, strlen(newname)+1);
+  return 1;
 }
 
 
@@ -680,7 +714,7 @@ int mdfs_set_crc(mdfs_t* mdfs, const char* filename, uint32_t crc)
  * have to update the file list on disk.
  * @param mdfs The mdfs
  * @param filename The filename
- * @returns -1 when file doesn't exist. 0 otherwise
+ * @returns -1 when file doesn't exist. 0 otherwise, error is set in that case.
  */
 int mdfs_update_crc(mdfs_t* mdfs, const char* filename)
 {
