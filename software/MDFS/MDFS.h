@@ -82,6 +82,13 @@ inline void* mdfs_get_open_file_location(mdfs_FILE* f)
 	if (f == NULL) return NULL;
 	else return (void*)(f->base + f->offset);
 }
+inline int32_t mdfs_get_open_file_size(mdfs_FILE *f) __attribute__((always_inline));
+inline int32_t mdfs_get_open_file_size(mdfs_FILE* f)
+{
+	if (f == NULL) return 0;
+	else return f->size;
+}
+
 
 inline void* mdfs_get_file_list(mdfs_t* mdfs) __attribute__((always_inline));
 inline void* mdfs_get_file_list(mdfs_t* mdfs) { return (void*)mdfs->file_list; }
