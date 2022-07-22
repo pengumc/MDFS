@@ -669,6 +669,8 @@ int mdfs_set_crc(mdfs_t* mdfs, const char* filename, uint32_t crc)
   int i = _mdfs_get_file_index(mdfs, filename);
   if (i < 0) return -1;
   mdfs->file_list[i].crc = crc;
+  // We changed something in the filelist so update that crc as well
+  _mdfs_update_file_list_crc(mdfs);
   return 0;
 }
 
@@ -689,5 +691,7 @@ int mdfs_update_crc(mdfs_t* mdfs, const char* filename)
   mdfs->file_list[f->index].crc = mdfs_calc_crc(
     (void*)(f->base + f->offset),
     f->size);
+  // We changed something in the filelist so update that crc as well
+  _mdfs_update_file_list_crc(mdfs);
   return 0;
 }

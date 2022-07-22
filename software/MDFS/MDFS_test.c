@@ -1145,10 +1145,17 @@ int T_mdfs_check_file_list_crc_after_add_expect_changed()
     printf("FAILED (crc did not change. 0x%08X\n", crc);
     result = -1;
   }
+  int ret_val = mdfs_check_file_list_crc(mdfs);
+  if (ret_val != 1)
+  {
+    printf("FAILED (check returned %i)\n", ret_val);
+    result = -1;
+  }
   else
   {
     printf("OK\n");
   }
+
   mdfs_deinit(mdfs);
   free((void*)fs);
   return result;  
