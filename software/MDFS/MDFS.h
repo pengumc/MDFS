@@ -48,6 +48,7 @@ uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index);
 uint32_t mdfs_get_file_crc(mdfs_t* mdfs, int index);
 uint32_t mdfs_add_file(mdfs_t* mdfs, const char* filename, int32_t size);
 int mdfs_remove_file(mdfs_t* mdfs, const char* filename);
+int mdfs_rename_file(mdfs_t* mdfs, const char* filename, const char* newname);
 
 // IO functions
 mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode);

@@ -3,7 +3,7 @@ LIB_O_FILES = $(foreach f, $(LIB_C_FILES), lua/$(basename $(f)).o)
 
 
 all: $(LIB_O_FILES)
-	gcc -Wall -I software/MDFS $(LIB_O_FILES) lua/lua.c software/mdfs/MDFS.c -o lua.exe
+	gcc -Wall -I. -Isoftware $(LIB_O_FILES) lua/lua.c software/mdfs/MDFS.c software/mdfs/MDFS_lua.c -o lua.exe
 
 %.o : %.c
-	gcc -Wall -I software/MDFS -c $< -o $@
+	gcc -Wall -Isoftware -c $< -o $@
