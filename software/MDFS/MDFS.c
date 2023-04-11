@@ -11,7 +11,7 @@ No write actions are performed.
 #include <ctype.h>
 
 #include "MDFS.h"
-
+#include "MDFS_mem.h"
 
 
 /**
@@ -39,9 +39,10 @@ static int _mdfs_get_file_index(mdfs_t* mdfs, const char* filename);
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset);
 static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
 
-#define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE)
-#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)realloc((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE)
-#define _mdfs_free_entry(entry) free(entry)
+#define _MDFS_INCREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)MDFS_REALLOC((void*)mdfs->file_list, ++mdfs->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE)
+#define _MDFS_DECREMENT_FILE_COUNT(mdfs) mdfs->file_list = (mdfs_file_t*)MDFS_REALLOC((void*)mdfs->file_list, --mdfs->file_count * sizeof(mdfs_file_t) + MDFS_EXTRA_CRC_SIZE)
+#define _mdfs_free_entry(entry) MDFS_FREE(entry)
+#define MDFS_SIMPLE_FILELIST_SIZE (2*sizeof(uint32_t))
 
 
 /** @brief Returns an initialized mdfs instance
@@ -53,9 +54,10 @@ static int _mdfs_insert(mdfs_t* mdfs, mdfs_file_t* entry, int index);
  * @ingroup mdfs
  */
 mdfs_t* mdfs_init_simple(const void* target) {
-	mdfs_t* mdfs = (mdfs_t*)malloc(sizeof(mdfs_t));
+	mdfs_t* mdfs = (mdfs_t*)MDFS_MALLOC(sizeof(mdfs_t));
 	mdfs->target = target;
-	mdfs->file_list = (mdfs_file_t*)calloc(2, sizeof(uint32_t)); // room for crc
+	mdfs->file_list = (mdfs_file_t*)MDFS_MALLOC(MDFS_SIMPLE_FILELIST_SIZE); // room for crc
+  memset((void*)mdfs->file_list, 0, MDFS_SIMPLE_FILELIST_SIZE);
 	mdfs->file_count = 0;
 	memset((void*)mdfs->error, 0, MDFS_ERROR_LEN);
 	_mdfs_build_file_list(mdfs);
@@ -152,8 +154,8 @@ void mdfs_deinit(mdfs_t* mdfs)
   {
     //_mdfs_free_entry(mdfs->file_list[i]);
   }
-  free(mdfs->file_list);
-  free(mdfs);
+  MDFS_FREE(mdfs->file_list);
+  MDFS_FREE(mdfs);
 }
 
 /** @brief Get the filename at index in the file_list
@@ -382,7 +384,7 @@ mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode)
   }
   if (strcmp(filename, "stdin") == 0)
   {
-    mdfs_FILE* fd = malloc(sizeof(mdfs_FILE));
+    mdfs_FILE* fd = MDFS_MALLOC(sizeof(mdfs_FILE));
     fd->index = -1;
     return fd;
   }
@@ -394,7 +396,7 @@ mdfs_FILE* mdfs_fopen(mdfs_t* mdfs, const char* filename, const char* mode)
     errno = ENOENT;
     return NULL;
   }
-  mdfs_FILE* fd = malloc(sizeof(mdfs_FILE));
+  mdfs_FILE* fd = MDFS_MALLOC(sizeof(mdfs_FILE));
   // Set values and copy filename
   fd->base = (void*)((uint32_t)mdfs->target + mdfs->file_list[index].byte_offset);
   fd->offset = 0;
@@ -435,7 +437,7 @@ mdfs_FILE* mdfs_freopen(mdfs_t* mdfs, const char* filename, const char* mode, md
  */
 int mdfs_fclose(mdfs_FILE* f)
 {
-  free(f);
+  MDFS_FREE(f);
   return 0;
 }
 
@@ -487,7 +489,7 @@ int mdfs_feof(mdfs_FILE* f)
 
 static mdfs_file_t* _mdfs_alloc_entry(const char* filename, int filesize, uint32_t byte_offset)
 {
-  mdfs_file_t* new_entry = calloc(1, sizeof(mdfs_file_t));
+  mdfs_file_t* new_entry = MDFS_MALLOC(sizeof(mdfs_file_t));
   snprintf(new_entry->filename, MDFS_MAX_FILENAME, "%s", filename);
   new_entry->size = filesize;
   new_entry->byte_offset = byte_offset;
