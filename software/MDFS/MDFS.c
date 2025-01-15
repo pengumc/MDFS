@@ -142,6 +142,19 @@ static int _mdfs_build_file_list(mdfs_t* mdfs)
 	return count;
 }
 
+
+/** @brief Rebuild the filelist
+ * 
+ * @copybrief mdfs_rebuild_filelist
+ * 
+ * @ingroup MDFS
+ */
+void mdfs_rebuild_filelist(mdfs_t* mdfs)
+{
+  mdfs->file_count = 0;
+  _mdfs_build_file_list(mdfs);
+}
+
 /** @brief Close/Deinitialize mdfs
  * 
  * @todo just free filelist?
