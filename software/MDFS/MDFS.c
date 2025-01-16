@@ -171,6 +171,25 @@ void mdfs_deinit(mdfs_t* mdfs)
   MDFS_FREE(mdfs);
 }
 
+/** @brief Get the size of the entire MDFS
+ * 
+ * @copybrief
+ * 
+ * @param mdfs Initialized instance of mdfs_t, see @ref MDFS_open_simple.
+ * @returns The number of bytes needed for the entire MDFS
+ * 
+ */
+int32_t mdfs_get_size(mdfs_t* mdfs)
+{
+  int32_t len = MDFS_SIMPLE_FILELIST_SIZE;
+  if (mdfs->file_count > 0) {
+    mdfs_file_t* f = &mdfs->file_list[mdfs->file_count-1];
+    len = f->byte_offset + f->size;
+  }
+  return len;
+  
+}
+
 /** @brief Get the filename at index in the file_list
  *
  * @copybrief MDFS_get_filename

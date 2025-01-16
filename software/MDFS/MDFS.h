@@ -43,6 +43,7 @@ typedef struct MDFS {
 mdfs_t* mdfs_init_simple(const void* target);
 void mdfs_rebuild_filelist(mdfs_t* mdfs);
 void mdfs_deinit(mdfs_t* mdfs);
+int32_t mdfs_get_size(mdfs_t* mdfs);
 int mdfs_get_filename(mdfs_t* mdfs, int index, char* buffer);
 int32_t mdfs_get_filesize(mdfs_t* mdfs, int index);
 uint32_t mdfs_get_file_offset(mdfs_t* mdfs, int index);
